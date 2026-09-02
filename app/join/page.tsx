@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Camera, Loader2 } from "lucide-react";
 
 import { PhoneShell } from "@/components/phone-shell";
@@ -21,6 +22,7 @@ const NAME_MAX_LENGTH = 24;
 type Step = "pin" | "profile" | "done";
 
 export default function JoinPage() {
+  const router = useRouter();
   const [step, setStep] = useState<Step>("pin");
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
@@ -62,6 +64,13 @@ export default function JoinPage() {
     if (!canSubmitProfile) return;
     setStep("done");
   }
+
+  // No backend yet — this hands off to the (mocked) question flow directly.
+  useEffect(() => {
+    if (step !== "done") return;
+    const t = setTimeout(() => router.push("/question"), 1500);
+    return () => clearTimeout(t);
+  }, [step, router]);
 
   return (
     <PhoneShell>
