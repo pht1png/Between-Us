@@ -184,7 +184,6 @@ export function JoinFlow() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
                 className="hidden"
                 onChange={handlePhotoChange}
               />

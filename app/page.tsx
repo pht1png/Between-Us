@@ -80,7 +80,6 @@ export default function Home() {
 					<section className="mx-auto w-full max-w-4xl px-6 pb-16 sm:pb-24">
 						<div className="grid grid-cols-1 gap-10 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-border">
 							{STEPS.map(({ icon: Icon, title, description }, index) => {
-								const isLast = index === STEPS.length - 1;
 								return (
 									<div
 										key={title}
