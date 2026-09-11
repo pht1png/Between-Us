@@ -1,12 +1,18 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Sex } from "@/lib/types";
 
 export type MonitoredParticipant = {
   id: string;
   name: string;
   bio?: string;
   photo?: string | null;
+  sex: Sex;
 };
+
+function sexLabel(sex: Sex) {
+  return sex === "male" ? "ชาย" : "หญิง";
+}
 
 export function ParticipantMonitor({
   participants,
@@ -30,7 +36,12 @@ export function ParticipantMonitor({
               <AvatarFallback className="text-xs">{participant.name.charAt(0)}</AvatarFallback>
             </Avatar>
             <div className="flex flex-col">
-              <span className="text-sm font-medium text-foreground">{participant.name}</span>
+              <span className="text-sm font-medium text-foreground">
+                {participant.name}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({sexLabel(participant.sex)})
+                </span>
+              </span>
               {participant.bio && (
                 <span className="text-xs text-muted-foreground">{participant.bio}</span>
               )}

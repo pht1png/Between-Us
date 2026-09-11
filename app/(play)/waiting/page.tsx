@@ -1,30 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 
 import { MatchMeter } from "@/components/match-meter";
 
-const TOTAL_MOCK = 42;
+import { usePlayEvent } from "../layout";
 
 export default function WaitingPage() {
-  const router = useRouter();
-  const [answered, setAnswered] = useState(18);
+  const { event, pin } = usePlayEvent();
 
-  // No backend yet — the answered count is simulated and this auto-advances
-  // where the real flow would wait for a server-pushed "reveal" event.
-  useEffect(() => {
-    const id = setInterval(() => {
-      setAnswered((n) => Math.min(TOTAL_MOCK, n + Math.ceil(Math.random() * 3)));
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
+  if (!event || event.type === "reveal") {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
+        <MatchMeter size={140} />
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    const t = setTimeout(() => router.push("/match"), 4000);
-    return () => clearTimeout(t);
-  }, [router]);
+  if (event.type === "lobby") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10 text-center">
+        <MatchMeter size={140} />
+        <div className="flex flex-col gap-1">
+          <h1 className="font-heading text-xl font-semibold text-foreground">รอเจ้าภาพเริ่มเกม</h1>
+          <p className="text-sm text-muted-foreground">คุณเข้าร่วมห้อง {pin} แล้ว</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10 text-center">
@@ -38,7 +41,7 @@ export default function WaitingPage() {
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Users className="size-4" />
         <span>
-          ตอบแล้ว {answered}/{TOTAL_MOCK} คน
+          ตอบแล้ว {event.answeredCount}/{event.totalParticipants} คน
         </span>
       </div>
     </div>

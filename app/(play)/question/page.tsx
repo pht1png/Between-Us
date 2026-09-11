@@ -1,64 +1,85 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Check, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { ScaleSlider } from "@/components/scale-slider";
 import { Button } from "@/components/ui/button";
+import type { PlayerEvent } from "@/lib/types";
 
-const QUESTION = {
-  index: 2,
-  total: 5,
-  text: "คุณชอบวางแผนล่วงหน้ามากแค่ไหน?",
-  minLabel: "ไม่ชอบเลย",
-  maxLabel: "ชอบมาก",
-};
-const DURATION_SECONDS = 20;
+import { usePlayEvent } from "../layout";
+
+type AskingEvent = Extract<PlayerEvent, { type: "asking" }>;
 
 export default function QuestionPage() {
-  const router = useRouter();
-  const [value, setValue] = useState(5);
-  const [secondsLeft, setSecondsLeft] = useState(DURATION_SECONDS);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const { event, pin } = usePlayEvent();
+  const asking = event?.type === "asking" ? event : null;
 
-  // No backend yet — countdown and submission are simulated client-side.
-  useEffect(() => {
-    if (submitted || secondsLeft <= 0) return;
-    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => clearTimeout(id);
-  }, [secondsLeft, submitted]);
-
-  useEffect(() => {
-    if (submitted || secondsLeft > 0) return;
-    const t = setTimeout(() => router.push("/waiting"), 800);
-    return () => clearTimeout(t);
-  }, [secondsLeft, submitted, router]);
-
-  async function handleSubmit() {
-    if (submitted || submitting) return;
-    setSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    setSubmitting(false);
-    setSubmitted(true);
-    setTimeout(() => router.push("/waiting"), 500);
+  if (!asking || !pin) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const timedOut = secondsLeft <= 0 && !submitted;
-  const mm = String(Math.floor(Math.max(secondsLeft, 0) / 60)).padStart(1, "0");
-  const ss = String(Math.max(secondsLeft, 0) % 60).padStart(2, "0");
+  // Keying on the question index remounts this subtree for every new question, so the slider
+  // guess and any stale submit error reset for free — no effect needed to sync them.
+  return <QuestionForm key={asking.question.index} asking={asking} pin={pin} />;
+}
+
+function QuestionForm({ asking, pin }: { asking: AskingEvent; pin: string }) {
+  const [value, setValue] = useState(5);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    function tick() {
+      setSecondsLeft(Math.max(0, Math.round((asking.endsAt - Date.now()) / 1000)));
+    }
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [asking.endsAt]);
+
+  const timedOut = secondsLeft !== null && secondsLeft <= 0;
+  const mm = secondsLeft === null ? "-" : String(Math.floor(secondsLeft / 60)).padStart(1, "0");
+  const ss = secondsLeft === null ? "--" : String(secondsLeft % 60).padStart(2, "0");
+
+  async function handleSubmit() {
+    if (submitting || timedOut) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/rooms/${pin}/answers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionIndex: asking.question.index, value }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setSubmitError(body?.error?.message ?? "ส่งคำตอบไม่สำเร็จ ลองใหม่อีกครั้ง");
+        setSubmitting(false);
+        return;
+      }
+      // Submission lands via the SSE roster broadcast; the layout routes to /waiting once
+      // `yourAnswer` flips, so there's nothing further to do here on success.
+    } catch {
+      setSubmitError("ส่งคำตอบไม่สำเร็จ ลองใหม่อีกครั้ง");
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-8 px-6 py-8">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-muted-foreground">
-          คำถามที่ {QUESTION.index} จาก {QUESTION.total}
+          คำถามที่ {asking.question.index + 1} จาก {asking.question.total}
         </span>
         <span
           className={
             "font-mono text-lg font-semibold " +
-            (secondsLeft <= 5 ? "text-destructive" : "text-foreground")
+            (secondsLeft !== null && secondsLeft <= 5 ? "text-destructive" : "text-foreground")
           }
         >
           {mm}:{ss}
@@ -66,34 +87,20 @@ export default function QuestionPage() {
       </div>
 
       <h1 className="text-balance font-heading text-2xl font-semibold leading-snug text-foreground">
-        {QUESTION.text}
+        {asking.question.text}
       </h1>
 
-      <ScaleSlider
-        value={value}
-        onChange={setValue}
-        minLabel={QUESTION.minLabel}
-        maxLabel={QUESTION.maxLabel}
-      />
+      <ScaleSlider value={value} onChange={setValue} minLabel="ไม่เห็นด้วยเลย" maxLabel="เห็นด้วยมาก" />
+
+      {submitError && <p className="text-sm text-destructive">{submitError}</p>}
 
       <Button
         size="lg"
         className="mt-auto h-12 text-base"
-        disabled={submitted || submitting || timedOut}
+        disabled={submitting || timedOut}
         onClick={handleSubmit}
       >
-        {submitting ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : submitted ? (
-          <>
-            <Check className="size-4" />
-            ส่งคำตอบแล้ว
-          </>
-        ) : timedOut ? (
-          "หมดเวลา!"
-        ) : (
-          "ส่งคำตอบ"
-        )}
+        {submitting ? <Loader2 className="size-4 animate-spin" /> : timedOut ? "หมดเวลา!" : "ส่งคำตอบ"}
       </Button>
     </div>
   );

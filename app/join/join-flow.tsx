@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { compressImageToDataUrl } from "@/lib/compress-image";
+import { setStoredPin } from "@/lib/client-store";
+import { cn } from "@/lib/utils";
+import type { Sex } from "@/lib/types";
 
 const STEP_LABELS = ["รหัสห้อง", "โปรไฟล์", "เสร็จสิ้น"];
 const BIO_MAX_LENGTH = 140;
@@ -35,21 +38,33 @@ export function JoinFlow() {
 
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
+  const [sex, setSex] = useState<Sex | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [submittingProfile, setSubmittingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initials = name.trim() ? name.trim().charAt(0).toUpperCase() : "?";
-  const canSubmitProfile = name.trim().length > 0 && bio.trim().length > 0 && photo !== null;
+  const canSubmitProfile = name.trim().length > 0 && bio.trim().length > 0 && sex !== null && photo !== null;
 
   async function continueWithPin(pinValue: string) {
     if (pinValue.length !== PIN_LENGTH || checkingPin) return;
     setCheckingPin(true);
     setPinError(null);
-    // No backend yet (see build plan Milestone B) — any 6-digit PIN passes for now.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setCheckingPin(false);
-    setStep("profile");
+    try {
+      const res = await fetch(`/api/rooms/${pinValue}/exists`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setPinError(body?.error?.message ?? "ไม่พบห้องนี้");
+        return;
+      }
+      setStep("profile");
+    } catch {
+      setPinError("เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setCheckingPin(false);
+    }
   }
 
   // A QR scan lands here with ?pin=XXXXXX already known-good (pre-filled above) — skip
@@ -75,16 +90,36 @@ export function JoinFlow() {
     }
   }
 
-  function handleSubmitProfile(event: FormEvent) {
+  async function handleSubmitProfile(event: FormEvent) {
     event.preventDefault();
-    if (!canSubmitProfile) return;
-    setStep("done");
+    if (!canSubmitProfile || submittingProfile || !sex) return;
+    setSubmittingProfile(true);
+    setJoinError(null);
+    try {
+      const res = await fetch(`/api/rooms/${pin}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), bio: bio.trim(), sex, photo }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setJoinError(body?.error?.message ?? "เข้าร่วมไม่สำเร็จ ลองใหม่อีกครั้ง");
+        return;
+      }
+      setStoredPin(pin);
+      setStep("done");
+    } catch {
+      setJoinError("เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setSubmittingProfile(false);
+    }
   }
 
-  // No backend yet — this hands off to the (mocked) question flow directly.
+  // The (play) layout re-derives the real phase (lobby/asking/reveal) from the SSE stream and
+  // routes accordingly — this is just a short, friendly landing pad.
   useEffect(() => {
     if (step !== "done") return;
-    const t = setTimeout(() => router.push("/question"), 1500);
+    const t = setTimeout(() => router.push("/waiting"), 1500);
     return () => clearTimeout(t);
   }, [step, router]);
 
@@ -187,6 +222,33 @@ export function JoinFlow() {
             </div>
 
             <div className="flex flex-col gap-2">
+              <Label>เพศ</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {(
+                  [
+                    { value: "male", label: "ชาย" },
+                    { value: "female", label: "หญิง" },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSex(option.value)}
+                    aria-pressed={sex === option.value}
+                    className={cn(
+                      "h-11 rounded-lg border text-sm font-medium transition-colors",
+                      sex === option.value
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground hover:border-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="bio">แนะนำตัวสั้น ๆ</Label>
                 <span className="text-xs text-muted-foreground">
@@ -203,8 +265,15 @@ export function JoinFlow() {
               />
             </div>
 
-            <Button type="submit" size="lg" className="mt-auto h-12 text-base" disabled={!canSubmitProfile}>
-              เข้าร่วม
+            {joinError && <p className="text-sm text-destructive">{joinError}</p>}
+
+            <Button
+              type="submit"
+              size="lg"
+              className="mt-auto h-12 text-base"
+              disabled={!canSubmitProfile || submittingProfile}
+            >
+              {submittingProfile ? <Loader2 className="size-4 animate-spin" /> : "เข้าร่วม"}
             </Button>
           </form>
         </div>
