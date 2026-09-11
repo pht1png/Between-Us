@@ -200,19 +200,32 @@ export function computeGroups(participants: MatchableParticipant[], options: { r
   }
 
   while (leftovers.length > 0) {
-    const eligibleGroups = groups.filter((g) => g.memberIds.length < MAX_GROUP_SIZE);
+    const eligible = groups.filter((g) => g.memberIds.length < MAX_GROUP_SIZE);
+    if (eligible.length === 0) break;
+
+    // Breadth-first: fill the smallest groups first, so leftovers spread across the
+    // available pairs instead of piling into whichever one happened to win the first
+    // tie. Widen to larger groups only when nobody in this cohort is comparable —
+    // otherwise an incomparable small group would strand a placeable leftover.
+    const sizes = [...new Set(eligible.map((g) => g.memberIds.length))].sort((a, b) => a - b);
+    let cohort: Group[] = [];
     let bestFit: number | null = null;
-    for (const l of leftovers) {
-      for (const g of eligibleGroups) {
-        const fit = fitToGroup(l.id, g);
-        if (fit !== null && (bestFit === null || fit > bestFit)) bestFit = fit;
+    for (const size of sizes) {
+      cohort = eligible.filter((g) => g.memberIds.length === size);
+      bestFit = null;
+      for (const l of leftovers) {
+        for (const g of cohort) {
+          const fit = fitToGroup(l.id, g);
+          if (fit !== null && (bestFit === null || fit > bestFit)) bestFit = fit;
+        }
       }
+      if (bestFit !== null) break;
     }
-    if (bestFit === null) break; // no eligible group left, or none comparable
+    if (bestFit === null) break; // nothing placeable at any size
 
     const tier: [MatchableParticipant, Group][] = [];
     for (const l of leftovers) {
-      for (const g of eligibleGroups) {
+      for (const g of cohort) {
         const fit = fitToGroup(l.id, g);
         if (fit !== null && fit >= bestFit - TIE_TOLERANCE) tier.push([l, g]);
       }
