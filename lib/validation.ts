@@ -32,12 +32,16 @@ export const createRoomSchema = z.object({
 const PHOTO_DATA_URL = /^data:image\/(jpeg|png|webp);base64,/;
 const MAX_PHOTO_DATA_URL_LENGTH = 400_000; // generous over compress-image's ~30KB target (base64 inflates ~1.37x)
 
-export const sexSchema = z.enum(["male", "female"]);
+export const sexSchema = z.enum(["male", "female", "lgbtq+"]);
+
+/** Who the participant wants matched to them. "any" accepts every sex. */
+export const desiredSexSchema = z.enum(["male", "female", "lgbtq+", "any"]);
 
 export const joinSchema = z.object({
   name: z.string().trim().min(1).max(24),
   bio: z.string().trim().min(1).max(140),
   sex: sexSchema,
+  desiredSex: desiredSexSchema,
   photo: z
     .string()
     .max(MAX_PHOTO_DATA_URL_LENGTH)
@@ -48,4 +52,11 @@ export const joinSchema = z.object({
 export const answerSchema = z.object({
   questionIndex: z.number().int().min(0),
   value: z.number().int().min(1).max(10),
+});
+
+export const MAX_FEEDBACK_LENGTH = 500;
+
+/** Empty string is valid and means "clear it" — the reveal screen's feedback box is optional. */
+export const feedbackSchema = z.object({
+  feedback: z.string().trim().max(MAX_FEEDBACK_LENGTH),
 });

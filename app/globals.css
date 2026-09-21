@@ -4,6 +4,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Plays only when a question opens a new section — a chapter marker, not a per-question effect. */
+@keyframes question-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes hero-pop {
   from {
     opacity: 0;

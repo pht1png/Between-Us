@@ -9,9 +9,10 @@ import {
   joinRoom,
   startRoom,
   submitAnswer,
+  submitFeedback,
 } from "@/lib/rooms";
 import { SECTION_IDS, type SectionId } from "@/lib/sections";
-import type { Participant, Room } from "@/lib/types";
+import type { DesiredSex, Participant, Room, Sex } from "@/lib/types";
 
 /**
  * Covers the server half of the answer-submission flow end to end — the path that produces the
@@ -37,8 +38,8 @@ function makeRoom(perSection = 1) {
   return room;
 }
 
-function join(room: Room, name: string, sex: "male" | "female") {
-  const result = joinRoom(room, { name, bio: `${name} bio`, sex, photo: null });
+function join(room: Room, name: string, sex: Sex, desiredSex: DesiredSex = "any") {
+  const result = joinRoom(room, { name, bio: `${name} bio`, sex, desiredSex, photo: null });
   if ("error" in result) throw new Error(`join failed: ${result.error.code}`);
   return result.participant;
 }
@@ -84,7 +85,11 @@ describe("joinRoom", () => {
     startRoom(room);
     submitAnswer(room, first, 0, 7);
 
-    const again = joinRoom(room, { name: "Alex 2", bio: "new bio", sex: "male", photo: null }, first);
+    const again = joinRoom(
+      room,
+      { name: "Alex 2", bio: "new bio", sex: "male", desiredSex: "any", photo: null },
+      first,
+    );
     if ("error" in again) throw new Error("rejoin failed");
 
     expect(room.participants.size).toBe(1);
@@ -100,10 +105,14 @@ describe("joinRoom", () => {
     const p = join(room, "Alex", "male");
     expect(p.photoVersion).toBe(0);
 
-    joinRoom(room, { name: "Alex", bio: "b", sex: "male", photo: null }, p);
+    joinRoom(room, { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: null }, p);
     expect(p.photoVersion).toBe(0); // unchanged photo -> cached URL stays valid
 
-    joinRoom(room, { name: "Alex", bio: "b", sex: "male", photo: "data:image/jpeg;base64,AAA" }, p);
+    joinRoom(
+      room,
+      { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: "data:image/jpeg;base64,AAA" },
+      p,
+    );
     expect(p.photoVersion).toBe(1);
   });
 });
@@ -232,5 +241,41 @@ describe("endGame", () => {
     expect(scores.bySectionIndex[SECTION_IDS.indexOf("values")]).toBe(100);
     expect(scores.bySectionIndex[SECTION_IDS.indexOf("lifestyle")]).toBeNull();
     expect(scores.overall).toBe(100);
+  });
+});
+
+describe("submitFeedback", () => {
+  it("stores trimmed text and overwrites on resubmit", () => {
+    const room = makeRoom();
+    const alex = join(room, "Alex", "male");
+
+    submitFeedback(alex, "  อยากให้จัดอีก  ");
+    expect(alex.feedback).toBe("อยากให้จัดอีก");
+
+    submitFeedback(alex, "เปลี่ยนใจ");
+    expect(alex.feedback).toBe("เปลี่ยนใจ");
+  });
+
+  it("treats an empty or whitespace-only submission as clearing it", () => {
+    const room = makeRoom();
+    const alex = join(room, "Alex", "male");
+
+    submitFeedback(alex, "บางอย่าง");
+    submitFeedback(alex, "   ");
+
+    expect(alex.feedback).toBeNull();
+  });
+
+  it("works after the room has ended — feedback is left on the way out, not during a question", () => {
+    const room = makeRoom();
+    const alex = join(room, "Alex", "male");
+    startRoom(room);
+    answerAll(room, alex, 5);
+    endRoom(room);
+
+    submitFeedback(alex, "สนุกมาก");
+
+    expect(room.status).toBe("ended");
+    expect(alex.feedback).toBe("สนุกมาก");
   });
 });

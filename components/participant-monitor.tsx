@@ -10,8 +10,14 @@ export type MonitoredParticipant = {
   sex: Sex;
 };
 
+const SEX_LABELS_TH: Record<Sex, string> = {
+  male: "ชาย",
+  female: "หญิง",
+  "lgbtq+": "LGBTQ+",
+};
+
 function sexLabel(sex: Sex) {
-  return sex === "male" ? "ชาย" : "หญิง";
+  return SEX_LABELS_TH[sex];
 }
 
 export function ParticipantMonitor({

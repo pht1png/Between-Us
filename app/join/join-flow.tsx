@@ -16,7 +16,20 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { compressImageToDataUrl } from "@/lib/compress-image";
 import { setStoredPin } from "@/lib/client-store";
 import { cn } from "@/lib/utils";
-import type { Sex } from "@/lib/types";
+import type { DesiredSex, Sex } from "@/lib/types";
+
+const SEX_OPTIONS: { value: Sex; label: string }[] = [
+  { value: "male", label: "ชาย" },
+  { value: "female", label: "หญิง" },
+  { value: "lgbtq+", label: "LGBTQ+" },
+];
+
+const DESIRED_SEX_OPTIONS: { value: DesiredSex; label: string }[] = [
+  { value: "male", label: "ชาย" },
+  { value: "female", label: "หญิง" },
+  { value: "lgbtq+", label: "LGBTQ+" },
+  { value: "any", label: "ทุกเพศ" },
+];
 
 const STEP_LABELS = ["รหัสห้อง", "โปรไฟล์", "เสร็จสิ้น"];
 const BIO_MAX_LENGTH = 140;
@@ -39,6 +52,7 @@ export function JoinFlow() {
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [sex, setSex] = useState<Sex | null>(null);
+  const [desiredSex, setDesiredSex] = useState<DesiredSex | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -46,7 +60,8 @@ export function JoinFlow() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initials = name.trim() ? name.trim().charAt(0).toUpperCase() : "?";
-  const canSubmitProfile = name.trim().length > 0 && bio.trim().length > 0 && sex !== null && photo !== null;
+  const canSubmitProfile =
+    name.trim().length > 0 && bio.trim().length > 0 && sex !== null && desiredSex !== null && photo !== null;
 
   async function continueWithPin(pinValue: string) {
     if (pinValue.length !== PIN_LENGTH || checkingPin) return;
@@ -92,14 +107,14 @@ export function JoinFlow() {
 
   async function handleSubmitProfile(event: FormEvent) {
     event.preventDefault();
-    if (!canSubmitProfile || submittingProfile || !sex) return;
+    if (!canSubmitProfile || submittingProfile || !sex || !desiredSex) return;
     setSubmittingProfile(true);
     setJoinError(null);
     try {
       const res = await fetch(`/api/rooms/${pin}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), bio: bio.trim(), sex, photo }),
+        body: JSON.stringify({ name: name.trim(), bio: bio.trim(), sex, desiredSex, photo }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
@@ -222,13 +237,8 @@ export function JoinFlow() {
 
             <div className="flex flex-col gap-2">
               <Label>เพศ</Label>
-              <div className="grid grid-cols-2 gap-3">
-                {(
-                  [
-                    { value: "male", label: "ชาย" },
-                    { value: "female", label: "หญิง" },
-                  ] as const
-                ).map((option) => (
+              <div className="grid grid-cols-3 gap-3">
+                {SEX_OPTIONS.map((option) => (
                   <button
                     key={option.value}
                     type="button"
@@ -237,6 +247,28 @@ export function JoinFlow() {
                     className={cn(
                       "h-11 rounded-lg border text-sm font-medium transition-colors",
                       sex === option.value
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground hover:border-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>อยากเจอคนแบบไหน</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {DESIRED_SEX_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setDesiredSex(option.value)}
+                    aria-pressed={desiredSex === option.value}
+                    className={cn(
+                      "h-11 rounded-lg border text-sm font-medium transition-colors",
+                      desiredSex === option.value
                         ? "border-accent bg-accent/10 text-accent"
                         : "border-border text-muted-foreground hover:border-accent/50 hover:text-foreground",
                     )}

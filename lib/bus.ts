@@ -5,6 +5,7 @@ import type {
   Group,
   GroupmateView,
   HostEvent,
+  HostFeedbackView,
   HostGroupView,
   HostParticipantView,
   Participant,
@@ -168,6 +169,12 @@ function buildHostGroups(room: Room): HostGroupView[] {
   );
 }
 
+function buildHostFeedback(room: Room): HostFeedbackView[] {
+  return Array.from(room.participants.values())
+    .filter((p): p is Participant & { feedback: string } => p.feedback !== null)
+    .map((p) => ({ participantId: p.id, name: p.name, feedback: p.feedback }));
+}
+
 function reasonText(reasonSectionIndex: number | null): string {
   if (reasonSectionIndex == null) return "คุณทั้งคู่มีความคล้ายกันในหลายด้าน";
   const id = sectionIdAt(reasonSectionIndex);
@@ -230,7 +237,14 @@ export function buildHostEvent(room: Room): HostEvent {
     };
   }
   // "reveal" and "ended" share one host-facing view — admin never distinguishes them visually.
-  return { type: "ended", serverNow, pin: room.pin, participants, groups: buildHostGroups(room) };
+  return {
+    type: "ended",
+    serverNow,
+    pin: room.pin,
+    participants,
+    groups: buildHostGroups(room),
+    feedback: buildHostFeedback(room),
+  };
 }
 
 /** `precomputed.answeredCount` lets broadcastRoom compute the roster-wide count once instead of
@@ -249,10 +263,19 @@ export function buildPlayerEvent(
   if (room.status === "asking") {
     const question = room.questions[room.currentIndex];
     const answeredCount = precomputed?.answeredCount ?? countAnswered(room);
+    // Derived from the ordered question list, which only the server has — so the client never
+    // needs to remember the previous render to know it just crossed into a new section.
+    const previousQuestion = room.currentIndex > 0 ? room.questions[room.currentIndex - 1] : null;
     return {
       type: "asking",
       serverNow,
-      question: { index: room.currentIndex, total: room.questions.length, text: question.text },
+      question: {
+        index: room.currentIndex,
+        total: room.questions.length,
+        text: question.text,
+        section: question.section,
+        isFirstInSection: previousQuestion === null || previousQuestion.section !== question.section,
+      },
       endsAt: room.questionEndsAt ?? serverNow,
       yourAnswer: participant.answers[room.currentIndex] ?? null,
       answeredCount,

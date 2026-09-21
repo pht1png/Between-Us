@@ -1,6 +1,9 @@
 import type { SectionId } from "@/lib/sections";
 
-export type Sex = "male" | "female";
+export type Sex = "male" | "female" | "lgbtq+";
+
+/** Who a participant wants to be matched with. "any" accepts every `Sex`. */
+export type DesiredSex = Sex | "any";
 
 export type Question = {
   id: string;
@@ -17,10 +20,12 @@ export type Participant = {
   name: string;
   bio: string;
   sex: Sex;
+  desiredSex: DesiredSex; // server-only — feeds matching, never serialized to the host
   photo: string | null; // data URL, or null if capture failed/declined. Server-only — never
   // serialized into a broadcast; clients fetch it from the participant photo route instead.
   photoVersion: number; // bumped whenever `photo` changes, so cached photo URLs can't go stale
   answers: (number | null)[]; // indexed by question index, length === questions.length
+  feedback: string | null; // free text from the reveal screen; outside the scored answers pipeline
   lastSeen: number;
 };
 
@@ -39,7 +44,7 @@ export type PairwiseResult = {
   reasonSectionIndex: number | null;
 };
 
-export type GroupOrigin = "primary-pair" | "leftover-join" | "same-sex-fallback";
+export type GroupOrigin = "primary-pair" | "leftover-join";
 
 export type Group = {
   id: string;
@@ -91,6 +96,14 @@ export type HostGroupView = {
   formedVia: GroupOrigin;
 };
 
+/** Post-game free text, shown to the host only on the "ended" snapshot. Deliberately not part of
+ * `HostParticipantView` — it is not roster metadata and does not exist before the reveal. */
+export type HostFeedbackView = {
+  participantId: string;
+  name: string;
+  feedback: string;
+};
+
 export type ErrorCode =
   | "ROOM_NOT_FOUND"
   | "ROOM_ENDED"
@@ -116,7 +129,16 @@ export type PlayerEvent =
   | {
       type: "asking";
       serverNow: number;
-      question: { index: number; total: number; text: string };
+      question: {
+        index: number;
+        total: number;
+        text: string;
+        section: SectionId;
+        /** True when this question opens a new section (or is the very first question).
+         * Computed server-side from the ordered question list so the client never has to
+         * remember the previous render to detect a section boundary. */
+        isFirstInSection: boolean;
+      };
       endsAt: number;
       yourAnswer: number | null;
       answeredCount: number;
@@ -144,4 +166,5 @@ export type HostEvent =
       pin: string;
       participants: HostParticipantView[];
       groups: HostGroupView[];
+      feedback: HostFeedbackView[];
     };

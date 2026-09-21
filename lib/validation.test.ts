@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { SECTION_IDS } from "@/lib/sections";
-import { answerSchema, createRoomSchema, joinSchema } from "@/lib/validation";
+import {
+  answerSchema,
+  createRoomSchema,
+  feedbackSchema,
+  joinSchema,
+  MAX_FEEDBACK_LENGTH,
+} from "@/lib/validation";
 
 /**
  * These pin the wire contracts. The answer-submission tests in particular exist because the
@@ -109,20 +115,62 @@ describe("createRoomSchema", () => {
 });
 
 describe("joinSchema", () => {
-  const base = { name: "Alex", bio: "ชอบเที่ยวทะเล", sex: "male", photo: null };
+  const base = {
+    name: "Alex",
+    bio: "ชอบเที่ยวทะเล",
+    sex: "male",
+    desiredSex: "female",
+    photo: null,
+  };
 
   it("accepts a valid profile with a null photo", () => {
     expect(joinSchema.safeParse(base).success).toBe(true);
   });
 
-  it("accepts only the two supported sexes", () => {
-    expect(joinSchema.safeParse({ ...base, sex: "female" }).success).toBe(true);
+  it("accepts exactly the three supported sexes", () => {
+    for (const sex of ["male", "female", "lgbtq+"]) {
+      expect(joinSchema.safeParse({ ...base, sex }).success).toBe(true);
+    }
     expect(joinSchema.safeParse({ ...base, sex: "other" }).success).toBe(false);
     expect(joinSchema.safeParse({ ...base, sex: "" }).success).toBe(false);
+    // "any" is a preference, never an identity.
+    expect(joinSchema.safeParse({ ...base, sex: "any" }).success).toBe(false);
+  });
+
+  it("accepts the three sexes plus 'any' as a desired sex, and requires the field", () => {
+    for (const desiredSex of ["male", "female", "lgbtq+", "any"]) {
+      expect(joinSchema.safeParse({ ...base, desiredSex }).success).toBe(true);
+    }
+    expect(joinSchema.safeParse({ ...base, desiredSex: "other" }).success).toBe(false);
+    const withoutDesiredSex = { ...base } as Partial<typeof base>;
+    delete withoutDesiredSex.desiredSex;
+    expect(joinSchema.safeParse(withoutDesiredSex).success).toBe(false);
   });
 
   it("rejects a photo that is not an image data URL", () => {
     expect(joinSchema.safeParse({ ...base, photo: "https://example.com/a.jpg" }).success).toBe(false);
     expect(joinSchema.safeParse({ ...base, photo: "data:image/jpeg;base64,abc" }).success).toBe(true);
+  });
+});
+
+describe("feedbackSchema", () => {
+  it("accepts an empty string — the box is optional, and empty means 'clear it'", () => {
+    expect(feedbackSchema.safeParse({ feedback: "" }).success).toBe(true);
+  });
+
+  it("trims and accepts ordinary text", () => {
+    const parsed = feedbackSchema.safeParse({ feedback: "  อยากให้จัดอีก  " });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.feedback).toBe("อยากให้จัดอีก");
+  });
+
+  it("rejects text past the length cap", () => {
+    expect(feedbackSchema.safeParse({ feedback: "ก".repeat(MAX_FEEDBACK_LENGTH) }).success).toBe(true);
+    expect(feedbackSchema.safeParse({ feedback: "ก".repeat(MAX_FEEDBACK_LENGTH + 1) }).success).toBe(false);
+  });
+
+  it("rejects a non-string body", () => {
+    expect(feedbackSchema.safeParse({ feedback: 5 }).success).toBe(false);
+    expect(feedbackSchema.safeParse({}).success).toBe(false);
   });
 });

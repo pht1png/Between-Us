@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import { broadcastRoom } from "@/lib/bus";
 import { computeGroups, computeSectionScores } from "@/lib/matching";
 import type { SectionId } from "@/lib/sections";
-import type { ErrorCode, Participant, Room, Sex } from "@/lib/types";
+import type { DesiredSex, ErrorCode, Participant, Room, Sex } from "@/lib/types";
 
 const ROOM_CAPACITY = 200;
 
@@ -129,7 +129,7 @@ export function createRoom(
 
 export function joinRoom(
   room: Room,
-  profile: { name: string; bio: string; sex: Sex; photo: string | null },
+  profile: { name: string; bio: string; sex: Sex; desiredSex: DesiredSex; photo: string | null },
   existingParticipant?: Participant,
 ):
   | { participant: Participant; resumeToken: string }
@@ -140,6 +140,7 @@ export function joinRoom(
     existingParticipant.name = profile.name;
     existingParticipant.bio = profile.bio;
     existingParticipant.sex = profile.sex;
+    existingParticipant.desiredSex = profile.desiredSex;
     // Bump only on an actual change — the photo URL carries this as a cache-buster, so an
     // unconditional bump would re-download every photo on every ordinary reconnect.
     if (existingParticipant.photo !== profile.photo) {
@@ -160,9 +161,11 @@ export function joinRoom(
     name: profile.name,
     bio: profile.bio,
     sex: profile.sex,
+    desiredSex: profile.desiredSex,
     photo: profile.photo,
     photoVersion: 0,
     answers: Array(room.questions.length).fill(null),
+    feedback: null,
     lastSeen: Date.now(),
   };
   room.participants.set(participant.id, participant);
@@ -186,6 +189,20 @@ export function submitAnswer(
   // Indexed set, never appended — a second tab sharing the same resume_token just overwrites,
   // so it can never double-count one participant's weight in the matching.
   participant.answers[questionIndex] = value;
+  participant.lastSeen = Date.now();
+  return { ok: true };
+}
+
+// ---- Feedback ----
+
+/**
+ * Free-text feedback from the reveal screen. Deliberately ungated by room status or question
+ * timers, unlike `submitAnswer` — this isn't tied to a question index or a phase window, it's a
+ * note left on the way out. Resubmitting overwrites; an empty string clears it.
+ */
+export function submitFeedback(participant: Participant, feedback: string): { ok: true } {
+  const trimmed = feedback.trim();
+  participant.feedback = trimmed.length > 0 ? trimmed : null;
   participant.lastSeen = Date.now();
   return { ok: true };
 }
@@ -247,6 +264,7 @@ function endGame(room: Room): void {
       Array.from(room.participants.values()).map((p) => ({
         id: p.id,
         sex: p.sex,
+        desiredSex: p.desiredSex,
         sectionScores: sectionScores.get(p.id)!,
       })),
     );

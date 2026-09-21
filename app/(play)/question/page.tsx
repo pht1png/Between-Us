@@ -5,7 +5,9 @@ import { Loader2 } from "lucide-react";
 
 import { ScaleSlider } from "@/components/scale-slider";
 import { Button } from "@/components/ui/button";
+import { SECTION_COUNT, SECTION_LABELS_TH, sectionIndex, type SectionId } from "@/lib/sections";
 import type { PlayerEvent } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 import { usePlayEvent } from "../layout";
 
@@ -24,8 +26,40 @@ export default function QuestionPage() {
   }
 
   // Keying on the question index remounts this subtree for every new question, so the slider
-  // guess and any stale submit error reset for free — no effect needed to sync them.
-  return <QuestionForm key={asking.question.index} asking={asking} pin={pin} />;
+  // guess and any stale submit error (and SectionGate's own cover-vs-question state) reset for
+  // free — no effect needed to sync them.
+  return <SectionGate key={asking.question.index} asking={asking} pin={pin} />;
+}
+
+/** Gates the actual question behind a brief cover slide when it opens a new section. Remounted
+ * fresh per question (keyed above), so `showCover`'s initializer is always correct with no
+ * cross-render memory needed. */
+function SectionGate({ asking, pin }: { asking: AskingEvent; pin: string }) {
+  const [showCover, setShowCover] = useState(asking.question.isFirstInSection);
+
+  useEffect(() => {
+    if (!showCover) return;
+    const timer = setTimeout(() => setShowCover(false), 1000);
+    return () => clearTimeout(timer);
+    // Runs once per mount — this component is remounted fresh per question via the key above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (showCover) return <SectionCover section={asking.question.section} />;
+  return <QuestionForm asking={asking} pin={pin} />;
+}
+
+function SectionCover({ section }: { section: SectionId }) {
+  return (
+    // min-h keeps the phone shell from collapsing around this sparse screen and then jumping
+    // back out when the question takes over — the shell hugs its content at mobile widths.
+    <div className="flex min-h-104 flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center motion-safe:animate-[hero-pop_0.3s_ease-out]">
+      <span className="text-sm font-medium text-muted-foreground">
+        หมวดที่ {sectionIndex(section) + 1} จาก {SECTION_COUNT}
+      </span>
+      <h1 className="font-heading text-3xl font-semibold text-foreground">{SECTION_LABELS_TH[section]}</h1>
+    </div>
+  );
 }
 
 function QuestionForm({ asking, pin }: { asking: AskingEvent; pin: string }) {
@@ -71,7 +105,14 @@ function QuestionForm({ asking, pin }: { asking: AskingEvent; pin: string }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-8 px-6 py-8">
+    <div
+      className={cn(
+        "flex flex-1 flex-col gap-8 px-6 py-8",
+        // Slides in as it takes over from the section cover; ordinary question-to-question
+        // moves within a section are instant.
+        asking.question.isFirstInSection && "motion-safe:animate-[question-slide-in_0.4s_ease-out]",
+      )}
+    >
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-muted-foreground">
           คำถามที่ {asking.question.index + 1} จาก {asking.question.total}

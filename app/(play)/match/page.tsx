@@ -1,16 +1,72 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Sparkles, Users } from "lucide-react";
+import { Loader2, Sparkles, Users } from "lucide-react";
 
 import { MatchMeter } from "@/components/match-meter";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { MAX_FEEDBACK_LENGTH } from "@/lib/validation";
 
 import { usePlayEvent } from "../layout";
 
+const FEEDBACK_PROMPT =
+  "มีอะไรที่อยากบอกหรืออยากให้ Between Us จัดเป็นพิเศษไหม สามารถบอกได้เลยน้า พวกเรารักฟังได้เต็มที่";
+
+function FeedbackBox({ pin }: { pin: string }) {
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  async function handleSubmit() {
+    if (status === "sending" || text.trim().length === 0) return;
+    setStatus("sending");
+    try {
+      const res = await fetch(`/api/rooms/${pin}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: text }),
+      });
+      setStatus(res.ok ? "sent" : "error");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (status === "sent") {
+    return (
+      <div className="w-full rounded-2xl bg-muted p-4 text-left">
+        <p className="text-sm text-foreground">ขอบคุณมากน้า เราอ่านทุกข้อความเลย</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-3 rounded-2xl bg-muted p-4 text-left">
+      <p className="text-sm text-foreground">{FEEDBACK_PROMPT}</p>
+      <Textarea
+        value={text}
+        onChange={(event) => setText(event.target.value.slice(0, MAX_FEEDBACK_LENGTH))}
+        placeholder="เล่าให้ฟังได้เลย"
+        rows={3}
+      />
+      {status === "error" && <p className="text-sm text-destructive">ส่งไม่สำเร็จ ลองใหม่อีกครั้ง</p>}
+      <Button
+        variant="secondary"
+        size="lg"
+        className="h-11"
+        disabled={status === "sending" || text.trim().length === 0}
+        onClick={handleSubmit}
+      >
+        {status === "sending" ? <Loader2 className="size-4 animate-spin" /> : "ส่งความคิดเห็น"}
+      </Button>
+    </div>
+  );
+}
+
 export default function MatchPage() {
-  const { event } = usePlayEvent();
+  const { event, pin } = usePlayEvent();
 
   if (!event || event.type !== "reveal") {
     return (
@@ -32,6 +88,7 @@ export default function MatchPage() {
         <p className="max-w-65 text-sm text-muted-foreground">
           อาจเป็นเพราะคุณตอบคำถามไม่ครบ หรือจำนวนผู้เข้าร่วมไม่พอจะจับคู่ในรอบนี้
         </p>
+        {pin && <FeedbackBox pin={pin} />}
         <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/" />}>
           กลับหน้าแรก
         </Button>
@@ -74,6 +131,8 @@ export default function MatchPage() {
           </div>
         ))}
       </div>
+
+      {pin && <FeedbackBox pin={pin} />}
 
       <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/" />}>
         กลับหน้าแรก
