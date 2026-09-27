@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Loader2, Sparkles, Users } from "lucide-react";
 
 import { MatchMeter } from "@/components/match-meter";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_FEEDBACK_LENGTH } from "@/lib/validation";
@@ -113,20 +112,29 @@ export default function MatchPage() {
         {isGroup ? `คุณได้จับกลุ่มกับ ${groupmates.length} คนนี้` : "คนที่เข้ากับคุณมากที่สุดในห้องนี้คือ"}
       </p>
 
-      <div className="flex w-full flex-col gap-3 text-left">
+      <div className="flex w-full flex-col gap-4 text-left">
         {groupmates.map((mate) => (
-          <div key={mate.id} className="flex gap-3 rounded-2xl bg-muted p-4">
-            <Avatar className="size-12 shrink-0">
-              {mate.photoUrl && <AvatarImage src={mate.photoUrl} alt="" />}
-              <AvatarFallback>{mate.name.charAt(0)}</AvatarFallback>
-            </Avatar>
-            <div className="flex flex-1 flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-heading text-base font-semibold text-foreground">{mate.name}</h2>
-                <span className="font-mono text-sm font-semibold text-accent">{mate.compatibility}%</span>
+          <div
+            key={mate.id}
+            className="relative aspect-3/4 w-full overflow-hidden rounded-3xl bg-muted ring-1 ring-border"
+          >
+            {mate.photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- served by our own photo route
+              <img src={mate.photoUrl} alt="" className="absolute inset-0 size-full object-cover" />
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center font-heading text-6xl font-semibold text-muted-foreground">
+                {mate.name.charAt(0)}
+              </span>
+            )}
+
+            {/* Scrim keeps the overlaid text readable over bright photos. */}
+            <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-linear-to-t from-black/85 via-black/55 to-transparent p-4 pt-14">
+              <div className="flex items-baseline justify-between gap-2">
+                <h2 className="font-heading text-xl font-semibold text-white">{mate.name}</h2>
+                <span className="font-mono text-base font-semibold text-white">{mate.compatibility}%</span>
               </div>
-              <p className="text-sm text-muted-foreground">{mate.bio}</p>
-              <p className="mt-1 text-xs text-foreground">{mate.reason}</p>
+              <p className="text-sm text-white/85">{mate.bio}</p>
+              <p className="text-xs text-white/70">{mate.reason}</p>
             </div>
           </div>
         ))}

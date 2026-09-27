@@ -129,7 +129,14 @@ export function createRoom(
 
 export function joinRoom(
   room: Room,
-  profile: { name: string; bio: string; sex: Sex; desiredSex: DesiredSex; photo: string | null },
+  profile: {
+    name: string;
+    bio: string;
+    sex: Sex;
+    desiredSex: DesiredSex;
+    photo: string | null;
+    photoThumb: string | null;
+  },
   existingParticipant?: Participant,
 ):
   | { participant: Participant; resumeToken: string }
@@ -142,9 +149,11 @@ export function joinRoom(
     existingParticipant.sex = profile.sex;
     existingParticipant.desiredSex = profile.desiredSex;
     // Bump only on an actual change — the photo URL carries this as a cache-buster, so an
-    // unconditional bump would re-download every photo on every ordinary reconnect.
+    // unconditional bump would re-download every photo on every ordinary reconnect. Both sizes
+    // are always regenerated together from one source image, so checking `photo` alone covers it.
     if (existingParticipant.photo !== profile.photo) {
       existingParticipant.photo = profile.photo;
+      existingParticipant.photoThumb = profile.photoThumb;
       existingParticipant.photoVersion += 1;
     }
     existingParticipant.lastSeen = Date.now();
@@ -163,6 +172,7 @@ export function joinRoom(
     sex: profile.sex,
     desiredSex: profile.desiredSex,
     photo: profile.photo,
+    photoThumb: profile.photoThumb,
     photoVersion: 0,
     answers: Array(room.questions.length).fill(null),
     feedback: null,

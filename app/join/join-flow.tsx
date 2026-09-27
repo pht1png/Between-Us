@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { compressImageToDataUrl } from "@/lib/compress-image";
 import { setStoredPin } from "@/lib/client-store";
 import { cn } from "@/lib/utils";
@@ -30,6 +29,11 @@ const DESIRED_SEX_OPTIONS: { value: DesiredSex; label: string }[] = [
   { value: "lgbtq+", label: "LGBTQ+" },
   { value: "any", label: "ทุกเพศ" },
 ];
+
+/** Large enough to fill a portrait card on a 3x-DPR phone without looking soft. */
+const CARD_PHOTO_SIZE = 720;
+/** Matches the old avatar target — all the admin roster's small circles ever need. */
+const THUMB_PHOTO_SIZE = 240;
 
 const STEP_LABELS = ["รหัสห้อง", "โปรไฟล์", "เสร็จสิ้น"];
 const BIO_MAX_LENGTH = 140;
@@ -54,6 +58,7 @@ export function JoinFlow() {
   const [sex, setSex] = useState<Sex | null>(null);
   const [desiredSex, setDesiredSex] = useState<DesiredSex | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoThumb, setPhotoThumb] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [submittingProfile, setSubmittingProfile] = useState(false);
@@ -98,8 +103,14 @@ export function JoinFlow() {
     if (!file) return;
     setPhotoError(null);
     try {
-      const dataUrl = await compressImageToDataUrl(file);
-      setPhoto(dataUrl);
+      // Two sizes from one pick: a large card photo for the join preview and the match reveal,
+      // and a small thumbnail so the host's roster stays light at 150 participants.
+      const [card, thumb] = await Promise.all([
+        compressImageToDataUrl(file, { maxSize: CARD_PHOTO_SIZE, quality: 0.72 }),
+        compressImageToDataUrl(file, { maxSize: THUMB_PHOTO_SIZE }),
+      ]);
+      setPhoto(card);
+      setPhotoThumb(thumb);
     } catch {
       setPhotoError("อ่านรูปไม่สำเร็จ ลองเลือกรูปอื่นอีกครั้ง");
     }
@@ -114,7 +125,7 @@ export function JoinFlow() {
       const res = await fetch(`/api/rooms/${pin}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), bio: bio.trim(), sex, desiredSex, photo }),
+        body: JSON.stringify({ name: name.trim(), bio: bio.trim(), sex, desiredSex, photo, photoThumb }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
@@ -205,21 +216,27 @@ export function JoinFlow() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="relative"
-                aria-label="เพิ่มรูปโปรไฟล์"
+                className="relative aspect-3/4 w-44 overflow-hidden rounded-3xl bg-muted ring-1 ring-border"
+                aria-label={photo ? "เปลี่ยนรูปโปรไฟล์" : "เพิ่มรูปโปรไฟล์"}
               >
-                <Avatar className="size-24">
-                  {photo && <AvatarImage src={photo} alt="" />}
-                  <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
-                </Avatar>
-                <span className="absolute -right-1 -bottom-1 flex size-8 items-center justify-center rounded-full bg-accent text-accent-foreground ring-2 ring-card">
+                {photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- local data URL, no loader needed
+                  <img src={photo} alt="" className="size-full object-cover" />
+                ) : (
+                  <span className="flex size-full items-center justify-center font-heading text-4xl font-semibold text-muted-foreground">
+                    {initials}
+                  </span>
+                )}
+                <span className="absolute right-2 bottom-2 flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground ring-2 ring-card">
                   <Camera className="size-4" />
                 </span>
               </button>
               {photoError ? (
                 <p className="text-sm text-destructive">{photoError}</p>
               ) : (
-                <p className="text-xs text-muted-foreground">แตะเพื่อเพิ่มรูปโปรไฟล์</p>
+                <p className="text-xs text-muted-foreground">
+                  {photo ? "แตะเพื่อเปลี่ยนรูป" : "แตะเพื่อเพิ่มรูปโปรไฟล์"}
+                </p>
               )}
             </div>
 
@@ -313,10 +330,16 @@ export function JoinFlow() {
       {step === "done" && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
           <StepChips steps={STEP_LABELS} currentIndex={2} />
-          <Avatar className="size-20">
-            {photo && <AvatarImage src={photo} alt="" />}
-            <AvatarFallback className="text-xl">{initials}</AvatarFallback>
-          </Avatar>
+          <div className="aspect-3/4 w-28 overflow-hidden rounded-2xl bg-muted ring-1 ring-border">
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- local data URL, no loader needed
+              <img src={photo} alt="" className="size-full object-cover" />
+            ) : (
+              <span className="flex size-full items-center justify-center font-heading text-2xl font-semibold text-muted-foreground">
+                {initials}
+              </span>
+            )}
+          </div>
           <h1 className="font-heading text-xl font-semibold text-foreground">
             ยินดีต้อนรับ, {name}
           </h1>

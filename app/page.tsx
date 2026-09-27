@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { MatchMeter } from "@/components/match-meter";
 import { MiniProfileChip } from "@/components/mini-profile-chip";
 import { InstagramGlyph } from "@/components/instagram-glyph";
+import Image from "next/image";
 
 const STEPS = [
 	{
@@ -36,9 +37,15 @@ export default function Home() {
 	return (
 		<div className="flex flex-1 justify-center sm:items-start sm:px-6 sm:py-6 lg:py-10">
 			<div className="flex w-full max-w-6xl flex-1 flex-col overflow-hidden bg-card sm:rounded-[2.5rem] sm:shadow-[0_40px_120px_-40px_rgba(36,27,54,0.35)] sm:ring-1 sm:ring-border">
-				<header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
-					<span className="font-heading text-xl font-semibold text-foreground">Between Us</span>
-					<Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/admin" />}>
+				<header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+					<Image src="/logo1.png" alt="Between Us logo" width={64} height={32} className="h-20 w-auto" />
+					{/* <span className="font-heading text-xl font-semibold text-foreground">Between Us</span> */}
+					<Button
+						variant="ghost"
+						size="sm"
+						nativeButton={false}
+						render={<Link href="/admin" className="text-primary" />}
+					>
 						สำหรับผู้จัดงาน
 					</Button>
 				</header>
@@ -114,15 +121,15 @@ export default function Home() {
 				</main>
 
 				<footer className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 border-t border-border px-10 py-3 text-sm text-muted-foreground sm:flex-row sm:justify-between">
-					<span>Between Us · กรุงเทพฯ</span>
+					<Image src="/logo2.png" alt="Between Us · กรุงเทพฯ" width={100} height={32} className="h-20 w-auto" />
 					<a
 						href={INSTAGRAM_URL}
 						target="_blank"
 						rel="noopener noreferrer"
 						className="inline-flex flex-col items-center gap-0 text-muted-foreground text-xs transition-colors hover:text-accent"
 					>
-						<InstagramGlyph className="size-8" />
-						@betweenus_bkk
+						<InstagramGlyph className="size-8 text-primary" />
+						<span className="text-primary">@betweenus_bkk</span>
 					</a>
 				</footer>
 			</div>

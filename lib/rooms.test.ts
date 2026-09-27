@@ -39,7 +39,14 @@ function makeRoom(perSection = 1) {
 }
 
 function join(room: Room, name: string, sex: Sex, desiredSex: DesiredSex = "any") {
-  const result = joinRoom(room, { name, bio: `${name} bio`, sex, desiredSex, photo: null });
+  const result = joinRoom(room, {
+    name,
+    bio: `${name} bio`,
+    sex,
+    desiredSex,
+    photo: null,
+    photoThumb: null,
+  });
   if ("error" in result) throw new Error(`join failed: ${result.error.code}`);
   return result.participant;
 }
@@ -87,7 +94,7 @@ describe("joinRoom", () => {
 
     const again = joinRoom(
       room,
-      { name: "Alex 2", bio: "new bio", sex: "male", desiredSex: "any", photo: null },
+      { name: "Alex 2", bio: "new bio", sex: "male", desiredSex: "any", photo: null, photoThumb: null },
       first,
     );
     if ("error" in again) throw new Error("rejoin failed");
@@ -105,15 +112,27 @@ describe("joinRoom", () => {
     const p = join(room, "Alex", "male");
     expect(p.photoVersion).toBe(0);
 
-    joinRoom(room, { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: null }, p);
+    joinRoom(
+      room,
+      { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: null, photoThumb: null },
+      p,
+    );
     expect(p.photoVersion).toBe(0); // unchanged photo -> cached URL stays valid
 
     joinRoom(
       room,
-      { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: "data:image/jpeg;base64,AAA" },
+      {
+        name: "Alex",
+        bio: "b",
+        sex: "male",
+        desiredSex: "any",
+        photo: "data:image/jpeg;base64,AAA",
+        photoThumb: "data:image/jpeg;base64,BBB",
+      },
       p,
     );
     expect(p.photoVersion).toBe(1);
+    expect(p.photoThumb).toBe("data:image/jpeg;base64,BBB"); // both sizes land together
   });
 });
 

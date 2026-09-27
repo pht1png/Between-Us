@@ -30,7 +30,9 @@ export const createRoomSchema = z.object({
 });
 
 const PHOTO_DATA_URL = /^data:image\/(jpeg|png|webp);base64,/;
-const MAX_PHOTO_DATA_URL_LENGTH = 400_000; // generous over compress-image's ~30KB target (base64 inflates ~1.37x)
+// Generous over compress-image's targets (~720px "card" photo, ~240px thumbnail; base64 inflates
+// ~1.37x). Shared by both fields below — the card photo is the larger of the two by far.
+const MAX_PHOTO_DATA_URL_LENGTH = 700_000;
 
 export const sexSchema = z.enum(["male", "female", "lgbtq+"]);
 
@@ -42,7 +44,14 @@ export const joinSchema = z.object({
   bio: z.string().trim().min(1).max(140),
   sex: sexSchema,
   desiredSex: desiredSexSchema,
+  // The large "card" photo — used on the join preview and the match reveal screen.
   photo: z
+    .string()
+    .max(MAX_PHOTO_DATA_URL_LENGTH)
+    .regex(PHOTO_DATA_URL)
+    .nullable(),
+  // A separately-compressed small version, used only for the admin roster's circular avatars.
+  photoThumb: z
     .string()
     .max(MAX_PHOTO_DATA_URL_LENGTH)
     .regex(PHOTO_DATA_URL)

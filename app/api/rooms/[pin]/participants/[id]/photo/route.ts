@@ -13,10 +13,12 @@ const DATA_URL_PREFIX = /^data:image\/(jpeg|png|webp);base64,/;
  * the wire once per viewer and is then cached by the browser.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ pin: string; id: string }> },
 ) {
   const { pin, id } = await params;
+  // Default to the smaller, safer size if the param is ever missing.
+  const size = new URL(request.url).searchParams.get("size") === "lg" ? "lg" : "sm";
   const room = getRoom(pin);
   if (!room) {
     return NextResponse.json(
@@ -40,7 +42,7 @@ export async function GET(
   }
 
   const participant = room.participants.get(id);
-  const photo = participant?.photo;
+  const photo = size === "lg" ? participant?.photo : participant?.photoThumb;
   if (!photo) {
     return NextResponse.json(
       { error: { code: "PARTICIPANT_NOT_FOUND", message: "ไม่พบรูปของผู้เข้าร่วมคนนี้" } },

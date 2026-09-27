@@ -121,6 +121,7 @@ describe("joinSchema", () => {
     sex: "male",
     desiredSex: "female",
     photo: null,
+    photoThumb: null,
   };
 
   it("accepts a valid profile with a null photo", () => {
@@ -150,6 +151,14 @@ describe("joinSchema", () => {
   it("rejects a photo that is not an image data URL", () => {
     expect(joinSchema.safeParse({ ...base, photo: "https://example.com/a.jpg" }).success).toBe(false);
     expect(joinSchema.safeParse({ ...base, photo: "data:image/jpeg;base64,abc" }).success).toBe(true);
+  });
+
+  it("validates the thumbnail the same way, and requires the field", () => {
+    expect(joinSchema.safeParse({ ...base, photoThumb: "data:image/jpeg;base64,abc" }).success).toBe(true);
+    expect(joinSchema.safeParse({ ...base, photoThumb: "https://example.com/a.jpg" }).success).toBe(false);
+    const withoutThumb = { ...base } as Partial<typeof base>;
+    delete withoutThumb.photoThumb;
+    expect(joinSchema.safeParse(withoutThumb).success).toBe(false);
   });
 });
 

@@ -21,9 +21,10 @@ export type Participant = {
   bio: string;
   sex: Sex;
   desiredSex: DesiredSex; // server-only — feeds matching, never serialized to the host
-  photo: string | null; // data URL, or null if capture failed/declined. Server-only — never
-  // serialized into a broadcast; clients fetch it from the participant photo route instead.
-  photoVersion: number; // bumped whenever `photo` changes, so cached photo URLs can't go stale
+  photo: string | null; // large "card" data URL, or null if capture failed/declined. Server-only
+  // — never serialized into a broadcast; clients fetch it from the participant photo route instead.
+  photoThumb: string | null; // small data URL, compressed separately — admin roster only
+  photoVersion: number; // bumped whenever `photo`/`photoThumb` change, so cached URLs can't go stale
   answers: (number | null)[]; // indexed by question index, length === questions.length
   feedback: string | null; // free text from the reveal screen; outside the scored answers pipeline
   lastSeen: number;

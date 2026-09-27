@@ -124,11 +124,16 @@ export function scheduleRosterFlush(room: Room): void {
 // lib/rooms.ts — rooms.ts calls broadcastRoom() from its internal auto-advance timer, so the
 // dependency must stay one-directional.
 
-/** Photos are served by URL, never embedded. A base64 data URL is ~20KB, so embedding them put
+/** Photos are served by URL, never embedded. A base64 data URL is ~20KB+, so embedding them put
  * ~2.9 MiB into every host roster broadcast at 150 participants; as a URL it's ~60 bytes and the
- * browser caches the image itself. `?v=` busts that cache when a participant re-uploads. */
-function photoUrlFor(pin: string, p: Participant): string | null {
-  return p.photo ? `/api/rooms/${pin}/participants/${p.id}/photo?v=${p.photoVersion}` : null;
+ * browser caches the image itself. `?v=` busts that cache when a participant re-uploads.
+ *
+ * `size` picks which stored copy is served: `"sm"` is the small thumbnail (admin roster only —
+ * keeps that broadcast light even at 150 participants), `"lg"` is the large card photo (join
+ * preview, match reveal). Callers pass it explicitly rather than relying on a default, so it's
+ * obvious at each call site which one a given screen needs. */
+function photoUrlFor(pin: string, p: Participant, size: "lg" | "sm"): string | null {
+  return p.photo ? `/api/rooms/${pin}/participants/${p.id}/photo?v=${p.photoVersion}&size=${size}` : null;
 }
 
 function countAnswered(room: Room): number {
@@ -145,7 +150,7 @@ function toHostParticipantView(room: Room) {
     name: p.name,
     bio: p.bio,
     sex: p.sex,
-    photoUrl: photoUrlFor(room.pin, p),
+    photoUrl: photoUrlFor(room.pin, p, "sm"),
     answered: p.answers[room.currentIndex] != null,
   });
 }
@@ -205,7 +210,7 @@ function buildRevealForParticipant(room: Room, participantId: string): { status:
       id: mate.id,
       name: mate.name,
       bio: mate.bio,
-      photoUrl: photoUrlFor(room.pin, mate),
+      photoUrl: photoUrlFor(room.pin, mate, "lg"),
       compatibility: Math.round(pairwise.compatibility),
       reason: reasonText(pairwise.reasonSectionIndex),
     });
