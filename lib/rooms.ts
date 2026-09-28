@@ -1,11 +1,30 @@
 import { randomInt } from "node:crypto";
 
-import { broadcastRoom } from "@/lib/bus";
+import { broadcastRoom, closeRoomStreams } from "@/lib/bus";
 import { computeGroups, computeSectionScores } from "@/lib/matching";
 import type { SectionId } from "@/lib/sections";
 import type { DesiredSex, ErrorCode, Participant, Room, Sex } from "@/lib/types";
 
 const ROOM_CAPACITY = 200;
+
+// ---- Retention ----
+// Rooms are held in memory with every answer and both photo sizes per participant (~35 MB at 150
+// people), and nothing used to free them — so memory grew monotonically across events. These two
+// windows are the whole policy; raise them freely, they are not a privacy claim.
+//
+// The hard rule they sit under: the CSV export is the only durable record of an event, so a room
+// must stay alive long enough for the host to download it. Shortening ENDED_ROOM_TTL_MS is how you
+// would silently start destroying results.
+
+/** From the moment the game ends. Long enough for stragglers on the reveal screen and for the host
+ * to export, short enough that a venue running back-to-back sessions doesn't accumulate. */
+const ENDED_ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+
+/** For a room that never reached "ended" — the host closed the tab, or created a replacement. Longer
+ * than the ended window because it might still be live. */
+const ABANDONED_ROOM_TTL_MS = 6 * 60 * 60 * 1000;
+
+const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
 type Store = {
   rooms: Map<string, Room>;
@@ -28,8 +47,56 @@ function getStore(): Store {
       activeRoomByToken: new Map(),
       timers: new Map(),
     };
+    armSweep();
   }
   return globalForRooms.__betweenUsRooms;
+}
+
+/** Armed once, alongside the store it sweeps. One global interval rather than a timer per room: the
+ * same pass has to cover both ended rooms and ones that were abandoned without ever ending. */
+function armSweep(): void {
+  const timer: unknown = setInterval(() => {
+    sweepRooms();
+  }, SWEEP_INTERVAL_MS);
+  // Node hands back a Timeout, other runtimes a number. Unref'd where possible so a ten-minute
+  // interval can never hold a vitest run or a shutdown open.
+  if (typeof timer === "object" && timer !== null && "unref" in timer) {
+    (timer as { unref: () => void }).unref();
+  }
+}
+
+/** Drops a room and everything still pointing at it. Missing any of these would free the Room object
+ * while leaking the thing that referenced it. */
+function freeRoom(pin: string): void {
+  const store = getStore();
+  clearRoomTimer(pin); // a pending auto-advance would otherwise hold the room alive until it fires
+  closeRoomStreams(pin);
+  store.rooms.delete(pin);
+  for (const [token, activePin] of Array.from(store.activeRoomByToken)) {
+    if (activePin === pin) store.activeRoomByToken.delete(token);
+  }
+}
+
+/**
+ * Frees every room past its retention window. Returns how many went.
+ *
+ * `now` is injectable for the same reason `computeGroups` takes an injectable `rng`: so tests can
+ * assert the policy without waiting two hours.
+ */
+export function sweepRooms(now: number = Date.now()): number {
+  const store = getStore();
+  let freed = 0;
+  for (const room of Array.from(store.rooms.values())) {
+    const expiresAt =
+      room.endedAt !== null
+        ? room.endedAt + ENDED_ROOM_TTL_MS
+        : room.createdAt + ABANDONED_ROOM_TTL_MS;
+    if (now > expiresAt) {
+      freeRoom(room.pin);
+      freed++;
+    }
+  }
+  return freed;
 }
 
 // ---- Auth ----
@@ -101,6 +168,18 @@ export function createRoom(
   preferredPin?: string,
 ): Room {
   const store = getStore();
+
+  // A host creating a room abandons whichever one they had before. End it — and tell its players, so
+  // they land on their reveal instead of sitting on a question forever — rather than leaving a second
+  // room auto-advancing in the background. It stays resident for the reaper on purpose: an accidental
+  // re-create must not destroy a live event's results before anyone has exported them.
+  const previousPin = store.activeRoomByToken.get(hostToken);
+  const previous = previousPin ? store.rooms.get(previousPin) : undefined;
+  if (previous && previous.status !== "ended") {
+    endGame(previous);
+    broadcastRoom(previous);
+  }
+
   const pin = generateUniquePin(preferredPin);
   const room: Room = {
     pin,
@@ -119,6 +198,7 @@ export function createRoom(
     sectionScores: null,
     matchResult: null,
     createdAt: Date.now(),
+    endedAt: null,
   };
   store.rooms.set(pin, room);
   store.activeRoomByToken.set(hostToken, pin);
@@ -264,6 +344,7 @@ function endGame(room: Room): void {
   room.generation++;
   room.status = "ended";
   room.questionEndsAt = null;
+  room.endedAt = Date.now(); // starts the retention clock — see ENDED_ROOM_TTL_MS
 
   if (room.matchResult === null) {
     const sectionScores = new Map(

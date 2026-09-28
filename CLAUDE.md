@@ -37,6 +37,23 @@ If `node`/`npm` aren't on PATH, this machine manages Node with fnm — activate 
 
 There is deliberately **no database**. The load-bearing consequence: this must be deployed as **one long-running Node process** (`next start`) — never serverless or autoscaled, since a second instance would hold a different `Map` and see none of the first's rooms. A restart loses all rooms by design; recovery is the host recreating the room (`createRoom` accepts a `preferredPin` so the already-displayed PIN can be reused).
 
+Sizing, measured at 150 participants: ~100 MB Next.js baseline + ~35 MB of base64 photos per live room. **512 MB of container RAM is comfortable, 256 MB is not** — and an OOM kill is not degradation, it destroys every live room at once.
+
+### Rooms are reaped, and the CSV export is the only durable record
+
+`sweepRooms(now = Date.now())` in `lib/rooms.ts` frees expired rooms on a lazily-armed 10-minute interval (`.unref()`'d, or a ten-minute timer would hold vitest open). Two windows, because the two cases differ:
+
+- `ENDED_ROOM_TTL_MS` (2 h from `room.endedAt`, set by `endGame`) — stragglers are still on the reveal screen submitting feedback, and the host still has to export.
+- `ABANDONED_ROOM_TTL_MS` (6 h from `room.createdAt`, when `endedAt` is still null) — the host closed the tab or replaced the room; it might still be live, so it gets longer.
+
+`now` is injectable for the same reason `computeGroups` takes an injectable `rng`: so tests assert the policy without waiting two hours.
+
+**The ordering rule that governs all of this:** `room.matchResult` exists only as a property of an in-memory object, so `GET /api/admin/rooms/[pin]/export` (`lib/export.ts`, pure and testable) is the *only* way an event's results survive. Freeing must never precede the host's chance to download — shortening `ENDED_ROOM_TTL_MS` is how you would silently start destroying results. The same reasoning is why the CSV header carries each question's full text rather than "ข้อ 1": once the room is freed there is nothing left to look the questions up in.
+
+`freeRoom` must clear the question timer, call `closeRoomStreams(pin)` (in `bus.ts` — the allowed `rooms.ts` → `bus.ts` direction) and drop the stale `activeRoomByToken` entry; missing any of those frees the `Room` while leaking whatever still referenced it. Creating a room **ends** the host's previous one and broadcasts, so its players reach their reveal rather than hanging — but leaves it resident, so an accidental re-create can't vaporize results before anyone exports them.
+
+Because the export writes Thai text a host opens in Excel, `toCsv` emits a UTF-8 BOM and CRLF line endings, and guards every participant-typed cell against spreadsheet formula injection. Verify changes to it by *opening the file in Excel*, not by reading it in a terminal — a terminal looks fine either way and proves nothing.
+
 ### Realtime is SSE, one endpoint, two roles
 
 `app/api/rooms/[pin]/stream/route.ts` serves both host and player. Role is resolved server-side from cookies, not from a query param — so the client just opens `/api/rooms/${pin}/stream` and gets whichever payload it's entitled to. `lib/bus.ts` builds those payloads (`buildHostEvent` / `buildPlayerEvent`, typed as `HostEvent` / `PlayerEvent` in `lib/types.ts`).

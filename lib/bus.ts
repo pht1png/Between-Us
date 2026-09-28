@@ -60,6 +60,38 @@ export function removeSubscriber(pin: string, subscriber: Subscriber): void {
   if (set.size === 0) store.subscribers.delete(pin);
 }
 
+/**
+ * Closes every stream open on a pin and forgets them. Called when a room is freed, so its sockets
+ * are released immediately instead of lingering until each one hits its own 8-minute self-cap.
+ *
+ * The route's per-connection heartbeat and self-cap timers aren't reachable from here, but they
+ * clean themselves up: the next heartbeat tick throws on the closed controller and runs the route's
+ * own `cleanup()`. That bounds the leftover timers at one heartbeat interval.
+ *
+ * Clients see the stream end and reconnect, which then 404s with ROOM_NOT_FOUND — the correct answer
+ * for a room that no longer exists.
+ */
+export function closeRoomStreams(pin: string): void {
+  const store = getBusStore();
+
+  const pending = store.pendingFlush.get(pin);
+  if (pending) {
+    clearTimeout(pending);
+    store.pendingFlush.delete(pin);
+  }
+
+  const subs = store.subscribers.get(pin);
+  if (!subs) return;
+  for (const sub of Array.from(subs)) {
+    try {
+      sub.controller.close();
+    } catch {
+      // Already closed or cancelled — there is nothing left to release.
+    }
+  }
+  store.subscribers.delete(pin);
+}
+
 function formatSseEvent(event: string, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
@@ -215,6 +247,7 @@ function buildRevealForParticipant(room: Room, participantId: string): RevealVie
       id: mate.id,
       name: mate.name,
       bio: mate.bio,
+      sex: mate.sex,
       photoUrl: photoUrlFor(room.pin, mate, "lg"),
       compatibility: Math.round(pairwise.compatibility),
       reason: reasonText(pairwise.reasonSectionIndex),

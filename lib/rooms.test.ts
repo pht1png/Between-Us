@@ -5,11 +5,14 @@ import {
   createRoom,
   endRoom,
   findParticipantByResumeToken,
+  findRoomByHostToken,
   getRoom,
+  getRoomCount,
   joinRoom,
   startRoom,
   submitAnswer,
   submitFeedback,
+  sweepRooms,
 } from "@/lib/rooms";
 import { SECTION_IDS, type SectionId } from "@/lib/sections";
 import type { DesiredSex, Participant, Room, Sex } from "@/lib/types";
@@ -264,6 +267,111 @@ describe("endGame", () => {
     expect(scores.bySectionIndex[SECTION_IDS.indexOf("values")]).toBe(100);
     expect(scores.bySectionIndex[SECTION_IDS.indexOf("lifestyle")]).toBeNull();
     expect(scores.overall).toBe(100);
+  });
+});
+
+describe("sweepRooms", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  // Rooms live in one process-wide store, so earlier tests in this file leave their (now ended)
+  // rooms behind and a sweep would count those too. Purge first so each test's numbers are its own.
+  beforeEach(() => {
+    sweepRooms(Date.now() + 1000 * HOUR);
+  });
+
+  /** Ends a room the way a real game does, so `endedAt` is set by endGame rather than by the test. */
+  function playToEnd() {
+    const room = makeRoom();
+    const p = join(room, "Alex", "male");
+    startRoom(room);
+    answerAll(room, p, 5);
+    endRoom(room);
+    return room;
+  }
+
+  it("frees an ended room once its window has passed", () => {
+    const room = playToEnd();
+    expect(room.endedAt).not.toBeNull();
+
+    expect(sweepRooms(Date.now() + 1 * HOUR)).toBe(0); // still inside the 2h window
+    expect(getRoom(room.pin)).toBe(room);
+
+    expect(sweepRooms(Date.now() + 3 * HOUR)).toBe(1);
+    expect(getRoom(room.pin)).toBeUndefined();
+  });
+
+  it("keeps a room that just ended — the host still has to be able to export it", () => {
+    const room = playToEnd();
+    expect(sweepRooms()).toBe(0);
+    expect(getRoom(room.pin)).toBe(room);
+  });
+
+  it("gives a room that never ended the longer abandoned window", () => {
+    const room = makeRoom(); // still in lobby, endedAt === null
+    expect(room.endedAt).toBeNull();
+
+    expect(sweepRooms(Date.now() + 3 * HOUR)).toBe(0); // past the ended window, not the abandoned one
+    expect(getRoom(room.pin)).toBe(room);
+
+    expect(sweepRooms(Date.now() + 7 * HOUR)).toBe(1);
+    expect(getRoom(room.pin)).toBeUndefined();
+  });
+
+  it("drops the freed room from the room count", () => {
+    const before = getRoomCount();
+    playToEnd();
+    expect(getRoomCount()).toBe(before + 1);
+
+    sweepRooms(Date.now() + 3 * HOUR);
+    expect(getRoomCount()).toBe(before);
+  });
+
+  it("stops resolving a freed room by host token, so the admin restore path sees no live room", () => {
+    // freeRoom has to drop the activeRoomByToken entry too, or that map grows across events and
+    // GET /api/admin/rooms/current keeps pointing at a room that no longer exists.
+    const token = `host-${crypto.randomUUID()}`;
+    const room = createRoom(token, questions());
+    rooms.push(room);
+    endRoom(room);
+    expect(findRoomByHostToken(token)).toBe(room);
+
+    sweepRooms(Date.now() + 3 * HOUR);
+    expect(findRoomByHostToken(token)).toBeUndefined();
+    expect(getRoom(room.pin)).toBeUndefined();
+  });
+});
+
+describe("createRoom replacing a host's previous room", () => {
+  it("ends the previous room but leaves it resident for the reaper", () => {
+    // An accidental re-create must not destroy results before anyone has exported them — so the old
+    // room is ended (its timer stopped, its players released to their reveal) but not freed.
+    const token = `host-${crypto.randomUUID()}`;
+    const first = createRoom(token, questions());
+    rooms.push(first);
+    startRoom(first);
+
+    const second = createRoom(token, questions());
+    rooms.push(second);
+
+    expect(first.status).toBe("ended");
+    expect(first.endedAt).not.toBeNull();
+    expect(getRoom(first.pin)).toBe(first); // still there to export
+    expect(second.pin).not.toBe(first.pin);
+    expect(second.status).toBe("lobby");
+  });
+
+  it("does not disturb an already-ended previous room", () => {
+    const token = `host-${crypto.randomUUID()}`;
+    const first = createRoom(token, questions());
+    rooms.push(first);
+    endRoom(first);
+    const endedAt = first.endedAt;
+
+    const second = createRoom(token, questions());
+    rooms.push(second);
+
+    expect(first.endedAt).toBe(endedAt); // endGame stayed idempotent
+    expect(getRoom(first.pin)).toBe(first);
   });
 });
 

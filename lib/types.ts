@@ -74,6 +74,10 @@ export type Room = {
   sectionScores: Map<string, SectionScores> | null; // computed once, at "ended"
   matchResult: MatchResult | null; // computed once, at "ended"
   createdAt: number;
+  /** Set once, by endGame(). The reaper needs "when did this finish" separately from "when was
+   * this created": a room the host abandoned mid-game has only the latter, and the two get
+   * different retention windows. */
+  endedAt: number | null;
 };
 
 // ---- Per-participant reveal view (built at the API/bus layer, never stored) ----
@@ -82,6 +86,7 @@ export type GroupmateView = {
   id: string;
   name: string;
   bio: string;
+  sex: Sex;
   photoUrl: string | null; // route URL, not a data URL — keeps payloads small
   compatibility: number; // non-null by construction
   reason: string; // pre-rendered Thai sentence from PairwiseResult.reasonSectionIndex

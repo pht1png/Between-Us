@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SEX_LABELS_TH } from "@/lib/labels";
 import type { Sex } from "@/lib/types";
 
 export type MonitoredParticipant = {
@@ -8,13 +9,6 @@ export type MonitoredParticipant = {
   bio?: string;
   photo?: string | null;
   sex: Sex;
-};
-
-const SEX_LABELS_TH: Record<Sex, string> = {
-  male: "ชาย",
-  female: "หญิง",
-  lgbtq_male: "LGBTQ+ (ชาย)",
-  lgbtq_female: "LGBTQ+ (หญิง)",
 };
 
 function sexLabel(sex: Sex) {

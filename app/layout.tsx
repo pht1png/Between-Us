@@ -34,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 			lang="th"
 			className={`${fraunces.variable} ${spaceGrotesk.variable} ${ibmPlexSansThai.variable} ${jetbrainsMono.variable} h-full antialiased`}
 		>
-			<body className="min-h-full flex flex-col bg-primary/30 text-foreground" suppressHydrationWarning>
+			<body className="min-h-full flex flex-col bg-primary/20 text-foreground" suppressHydrationWarning>
 				{children}
 			</body>
 		</html>

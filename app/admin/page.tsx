@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, LogOut, Plus, Sparkles, X } from "lucide-react";
+import { ArrowRight, Check, Copy, Download, LogOut, Plus, Sparkles, X } from "lucide-react";
 
 import { ParticipantMonitor, type MonitoredParticipant } from "@/components/participant-monitor";
 import { RoomQr } from "@/components/room-qr";
@@ -314,7 +314,7 @@ export default function AdminPage() {
 			<div className="flex min-h-dvh flex-1 items-center justify-center px-4">
 				<Card className="w-full max-w-sm">
 					<CardHeader>
-						<CardTitle className="font-heading text-xl">Between Us · ผู้ดูแล</CardTitle>
+						<CardTitle className="font-heading text-xl">Between Us · ผู้จัดงาน</CardTitle>
 						<CardDescription>เข้าสู่ระบบด้วยรหัสผ่านผู้จัดงาน</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -349,7 +349,7 @@ export default function AdminPage() {
 
 	const header = (
 		<div className="flex items-center justify-between">
-			<span className="font-heading text-lg font-semibold text-foreground">Between Us · ผู้ดูแล</span>
+			<span className="font-heading text-lg font-semibold text-foreground">Between Us · ผู้จัดงาน</span>
 			<Button variant="ghost" size="sm" onClick={handleLogout}>
 				<LogOut className="size-4" />
 				ออกจากระบบ
@@ -627,11 +627,11 @@ export default function AdminPage() {
 							{hostEvent.groups.map((group, index) => (
 								<div
 									key={index}
-									className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-4 py-3 text-left"
+									className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left"
 								>
-									<span className="text-sm text-foreground">{group.memberNames.join(" · ")}</span>
+									<span className="text-sm font-medium text-foreground">{group.memberNames.join(" & ")}</span>
 									{group.formedVia === "friend-match" && (
-										<Badge variant="outline" className="shrink-0">
+										<Badge variant="destructive" className="shrink-0">
 											จับคู่แบบเพื่อน
 										</Badge>
 									)}
@@ -646,17 +646,32 @@ export default function AdminPage() {
 						<p className="text-xs font-medium text-muted-foreground">ความคิดเห็นจากผู้เข้าร่วม</p>
 						<div className="flex flex-col gap-2">
 							{hostEvent.feedback.map((entry) => (
-								<div
-									key={entry.participantId}
-									className="flex flex-col gap-1 rounded-xl bg-muted/50 px-4 py-3 text-left"
-								>
-									<span className="text-xs font-medium text-muted-foreground">{entry.name}</span>
-									<span className="text-sm text-foreground">{entry.feedback}</span>
+								<div key={entry.participantId} className="flex flex-col gap-1 rounded-xl bg-white px-4 py-3 text-left">
+									<span className="text-sm font-medium text-foreground">{entry.name}</span>
+									<span className="text-xs text-muted-foreground">{entry.feedback}</span>
 								</div>
 							))}
 						</div>
 					</div>
 				)}
+
+				{/* Deliberately above "สร้างห้องใหม่": creating a new room abandons this one, and nothing
+				    here is stored permanently, so the download has to be the more obvious next step. */}
+				<div className="flex w-full flex-col items-center gap-2">
+					<Button
+						size="lg"
+						variant="secondary"
+						className="h-11 text-base"
+						nativeButton={false}
+						render={<a href={`/api/admin/rooms/${hostEvent.pin}/export`} download />}
+					>
+						<Download className="size-4" />
+						ดาวน์โหลดผลลัพธ์ (CSV)
+					</Button>
+					<p className="max-w-80 text-xs text-muted-foreground">
+						ผลการจับคู่และความคิดเห็นไม่ได้ถูกบันทึกถาวร ถ้าอยากเก็บไว้ กรุณาดาวน์โหลดก่อนปิดหน้านี้
+					</p>
+				</div>
 
 				<Button size="lg" className="h-11 text-base" onClick={resetForNewRoom}>
 					สร้างห้องใหม่
