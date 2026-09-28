@@ -34,10 +34,11 @@ const PHOTO_DATA_URL = /^data:image\/(jpeg|png|webp);base64,/;
 // ~1.37x). Shared by both fields below — the card photo is the larger of the two by far.
 const MAX_PHOTO_DATA_URL_LENGTH = 700_000;
 
-export const sexSchema = z.enum(["male", "female", "lgbtq+"]);
+export const sexSchema = z.enum(["male", "female", "lgbtq_male", "lgbtq_female"]);
 
-/** Who the participant wants matched to them. "any" accepts every sex. */
-export const desiredSexSchema = z.enum(["male", "female", "lgbtq+", "any"]);
+/** Multi-select: who the participant wants matched to them. Picking all four is how "anyone" is
+ * expressed, so there is no separate "any" value. At least one choice is required. */
+export const desiredSexSchema = z.array(sexSchema).min(1);
 
 export const joinSchema = z.object({
   name: z.string().trim().min(1).max(24),

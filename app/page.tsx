@@ -57,9 +57,9 @@ export default function Home() {
 								เจอคนที่เข้ากับคุณ ที่ Between Us
 							</h1>
 							<div className="relative flex items-center justify-center py-6 motion-safe:animate-[hero-pop_0.7s_ease-out]">
-								<MiniProfileChip label="คุณ" initial="ค" rotation="left" className="left-0 top-0 sm:left-4" />
+								<MiniProfileChip label="ธาม" initial="ธ" rotation="left" className="left-0 top-0 sm:left-4" />
 								<MiniProfileChip label="มายด์" initial="ม" rotation="right" className="bottom-0 right-0 sm:right-4" />
-								<MatchMeter percent={94} size={300} />
+								<MatchMeter percent={94} size={280} />
 							</div>
 							<p className="max-w-72 text-center text-lg leading-relaxed text-muted-foreground">
 								ตอบคำถามสนุก ๆ ไม่กี่ข้อ แล้วให้เราจับคู่คุณกับคนที่เข้ากันที่สุดในห้องนี้
@@ -68,7 +68,7 @@ export default function Home() {
 								<Button size="lg" className="h-12 px-12 text-base" nativeButton={false} render={<Link href="/join" />}>
 									เข้าร่วมห้อง
 								</Button>
-								<span className="text-sm text-muted-foreground">ใช้เวลาไม่ถึง 2 นาที</span>
+								<span className="text-sm text-muted-foreground">ใช้เวลาไม่ถึง 5 นาที</span>
 							</div>
 						</div>
 					</section>

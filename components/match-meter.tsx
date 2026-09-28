@@ -1,20 +1,21 @@
 import { cn } from "@/lib/utils";
 
 export function MatchMeter({
+	clamped = 87,
 	percent,
 	size = 160,
 	className,
 }: {
 	/** Compatibility percent, 0-100. Omit to render a "still calculating" state. */
+	clamped?: number;
 	percent?: number;
 	size?: number;
 	className?: string;
 }) {
 	const isCalculating = percent === undefined;
-	const clamped = isCalculating ? 55 : Math.min(100, Math.max(0, percent));
 
-	const r = size * 0.28;
-	const maxOffset = size * 0.88;
+	const r = size * 0.38;
+	const maxOffset = size * 0.9;
 	const offset = maxOffset * (1 - clamped / 100);
 	const cx = size / 2;
 	const cy = size / 2;
@@ -27,11 +28,13 @@ export function MatchMeter({
 			</svg>
 			<div className="absolute inset-0 flex flex-col items-center justify-center">
 				{isCalculating ? (
-					<span className="text-2xl text-foreground">…</span>
+					<span className="font-mono font-semibold text-2xl text-white">···</span>
 				) : (
-					<span className="font-mono text-3xl font-semibold text-foreground">{Math.round(clamped)}%</span>
+					<span className="font-mono text-xl sm:text-2xl md:text-4xl font-semibold text-white">
+						{Math.round(percent)}%
+					</span>
 				)}
-				<span className="text-xs text-black">เข้ากัน</span>
+				<span className="text-xs text-white">{isCalculating ? "" : "เข้ากัน"}</span>
 			</div>
 		</div>
 	);

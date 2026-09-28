@@ -306,12 +306,12 @@ export default function AdminPage() {
 	}
 
 	if (authStatus === "checking") {
-		return <div className="flex min-h-dvh flex-1 items-center justify-center bg-background" />;
+		return <div className="flex min-h-dvh flex-1 items-center justify-center" />;
 	}
 
 	if (authStatus === "loggedOut") {
 		return (
-			<div className="flex min-h-dvh flex-1 items-center justify-center bg-background px-4">
+			<div className="flex min-h-dvh flex-1 items-center justify-center px-4">
 				<Card className="w-full max-w-sm">
 					<CardHeader>
 						<CardTitle className="font-heading text-xl">Between Us · ผู้ดูแล</CardTitle>
@@ -630,9 +630,9 @@ export default function AdminPage() {
 									className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-4 py-3 text-left"
 								>
 									<span className="text-sm text-foreground">{group.memberNames.join(" · ")}</span>
-									{group.formedVia !== "primary-pair" && (
+									{group.formedVia === "friend-match" && (
 										<Badge variant="outline" className="shrink-0">
-											จับคู่พิเศษ
+											จับคู่แบบเพื่อน
 										</Badge>
 									)}
 								</div>

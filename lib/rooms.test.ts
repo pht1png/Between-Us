@@ -30,6 +30,10 @@ function questions(perSection = 1) {
   );
 }
 
+/** Open to every sex — the multi-select equivalent of "anyone", so fixtures that aren't about
+ * preference don't accidentally constrain matching. */
+const ANYONE: DesiredSex = ["male", "female", "lgbtq_male", "lgbtq_female"];
+
 let rooms: Room[] = [];
 
 function makeRoom(perSection = 1) {
@@ -38,7 +42,7 @@ function makeRoom(perSection = 1) {
   return room;
 }
 
-function join(room: Room, name: string, sex: Sex, desiredSex: DesiredSex = "any") {
+function join(room: Room, name: string, sex: Sex, desiredSex: DesiredSex = ANYONE) {
   const result = joinRoom(room, {
     name,
     bio: `${name} bio`,
@@ -94,7 +98,7 @@ describe("joinRoom", () => {
 
     const again = joinRoom(
       room,
-      { name: "Alex 2", bio: "new bio", sex: "male", desiredSex: "any", photo: null, photoThumb: null },
+      { name: "Alex 2", bio: "new bio", sex: "male", desiredSex: ANYONE, photo: null, photoThumb: null },
       first,
     );
     if ("error" in again) throw new Error("rejoin failed");
@@ -114,7 +118,7 @@ describe("joinRoom", () => {
 
     joinRoom(
       room,
-      { name: "Alex", bio: "b", sex: "male", desiredSex: "any", photo: null, photoThumb: null },
+      { name: "Alex", bio: "b", sex: "male", desiredSex: ANYONE, photo: null, photoThumb: null },
       p,
     );
     expect(p.photoVersion).toBe(0); // unchanged photo -> cached URL stays valid
@@ -125,7 +129,7 @@ describe("joinRoom", () => {
         name: "Alex",
         bio: "b",
         sex: "male",
-        desiredSex: "any",
+        desiredSex: ANYONE,
         photo: "data:image/jpeg;base64,AAA",
         photoThumb: "data:image/jpeg;base64,BBB",
       },

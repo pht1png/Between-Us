@@ -1,9 +1,10 @@
 import type { SectionId } from "@/lib/sections";
 
-export type Sex = "male" | "female" | "lgbtq+";
+export type Sex = "male" | "female" | "lgbtq_male" | "lgbtq_female";
 
-/** Who a participant wants to be matched with. "any" accepts every `Sex`. */
-export type DesiredSex = Sex | "any";
+/** Who a participant wants to be matched with — a non-empty, multi-select subset of `Sex`.
+ * Selecting all four values is how "anyone" is expressed; there is no separate "any" sentinel. */
+export type DesiredSex = Sex[];
 
 export type Question = {
   id: string;
@@ -45,11 +46,13 @@ export type PairwiseResult = {
   reasonSectionIndex: number | null;
 };
 
-export type GroupOrigin = "primary-pair" | "leftover-join";
+/** How a pair came about. `friend-match` means the preference gate was deliberately ignored
+ * because that person would otherwise have been left over — always disclosed, never silent. */
+export type GroupOrigin = "primary-pair" | "friend-match";
 
 export type Group = {
   id: string;
-  memberIds: string[]; // length >= 2
+  memberIds: string[]; // always exactly 2 — matching is strictly 1-to-1
   formedVia: GroupOrigin;
 };
 
@@ -84,7 +87,15 @@ export type GroupmateView = {
   reason: string; // pre-rendered Thai sentence from PairwiseResult.reasonSectionIndex
 };
 
-export type RevealView = { status: "matched"; groupmates: GroupmateView[] } | { status: "unmatched" };
+export type RevealView =
+  | {
+      status: "matched";
+      /** "friend" means this pair ignored the desired-sex preference so the participant wasn't
+       * left out of an uneven room — the reveal screen must say so plainly. */
+      kind: "primary" | "friend";
+      groupmate: GroupmateView;
+    }
+  | { status: "unmatched" };
 
 export type HostParticipantView = Pick<Participant, "id" | "name" | "bio" | "sex"> & {
   photoUrl: string | null; // route URL — embedding data URLs here made the roster broadcast

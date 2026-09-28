@@ -119,7 +119,7 @@ describe("joinSchema", () => {
     name: "Alex",
     bio: "ชอบเที่ยวทะเล",
     sex: "male",
-    desiredSex: "female",
+    desiredSex: ["female"],
     photo: null,
     photoThumb: null,
   };
@@ -128,21 +128,32 @@ describe("joinSchema", () => {
     expect(joinSchema.safeParse(base).success).toBe(true);
   });
 
-  it("accepts exactly the three supported sexes", () => {
-    for (const sex of ["male", "female", "lgbtq+"]) {
+  it("accepts exactly the four supported sexes", () => {
+    for (const sex of ["male", "female", "lgbtq_male", "lgbtq_female"]) {
       expect(joinSchema.safeParse({ ...base, sex }).success).toBe(true);
     }
     expect(joinSchema.safeParse({ ...base, sex: "other" }).success).toBe(false);
     expect(joinSchema.safeParse({ ...base, sex: "" }).success).toBe(false);
-    // "any" is a preference, never an identity.
-    expect(joinSchema.safeParse({ ...base, sex: "any" }).success).toBe(false);
+    // The old single "lgbtq+" value is gone — it must not silently still parse.
+    expect(joinSchema.safeParse({ ...base, sex: "lgbtq+" }).success).toBe(false);
+    // Preferences are a list; a bare string is not a valid identity either.
+    expect(joinSchema.safeParse({ ...base, sex: ["male"] }).success).toBe(false);
   });
 
-  it("accepts the three sexes plus 'any' as a desired sex, and requires the field", () => {
-    for (const desiredSex of ["male", "female", "lgbtq+", "any"]) {
-      expect(joinSchema.safeParse({ ...base, desiredSex }).success).toBe(true);
-    }
-    expect(joinSchema.safeParse({ ...base, desiredSex: "other" }).success).toBe(false);
+  it("takes desired sex as a non-empty list, and requires the field", () => {
+    expect(joinSchema.safeParse({ ...base, desiredSex: ["male"] }).success).toBe(true);
+    expect(
+      joinSchema.safeParse({ ...base, desiredSex: ["male", "female", "lgbtq_male", "lgbtq_female"] }).success,
+    ).toBe(true);
+
+    // Empty means "nobody", which is never a valid ask.
+    expect(joinSchema.safeParse({ ...base, desiredSex: [] }).success).toBe(false);
+    expect(joinSchema.safeParse({ ...base, desiredSex: ["other"] }).success).toBe(false);
+    // "any" was replaced by selecting every sex — the sentinel must not linger.
+    expect(joinSchema.safeParse({ ...base, desiredSex: ["any"] }).success).toBe(false);
+    // A bare string is no longer accepted now that this is multi-select.
+    expect(joinSchema.safeParse({ ...base, desiredSex: "female" }).success).toBe(false);
+
     const withoutDesiredSex = { ...base } as Partial<typeof base>;
     delete withoutDesiredSex.desiredSex;
     expect(joinSchema.safeParse(withoutDesiredSex).success).toBe(false);

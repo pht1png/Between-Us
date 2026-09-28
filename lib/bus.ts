@@ -3,13 +3,13 @@ import { SECTION_LABELS_TH, sectionIdAt } from "@/lib/sections";
 import type {
   ErrorCode,
   Group,
-  GroupmateView,
   HostEvent,
   HostFeedbackView,
   HostGroupView,
   HostParticipantView,
   Participant,
   PlayerEvent,
+  RevealView,
   Room,
 } from "@/lib/types";
 
@@ -187,7 +187,7 @@ function reasonText(reasonSectionIndex: number | null): string {
   return `คุณทั้งคู่ตอบหมวด "${SECTION_LABELS_TH[id]}" ใกล้เคียงกันมาก`;
 }
 
-function buildRevealForParticipant(room: Room, participantId: string): { status: "matched"; groupmates: GroupmateView[] } | { status: "unmatched" } {
+function buildRevealForParticipant(room: Room, participantId: string): RevealView {
   const matchResult = room.matchResult;
   const sectionScores = room.sectionScores;
   if (!matchResult || !sectionScores) return { status: "unmatched" };
@@ -198,26 +198,28 @@ function buildRevealForParticipant(room: Room, participantId: string): { status:
   const myScores = sectionScores.get(participantId);
   if (!myScores) return { status: "unmatched" };
 
-  const groupmates: GroupmateView[] = [];
-  for (const memberId of group.memberIds) {
-    if (memberId === participantId) continue;
-    const mate = room.participants.get(memberId);
-    const mateScores = sectionScores.get(memberId);
-    if (!mate || !mateScores) continue;
-    const pairwise = computePairwiseCompatibility(myScores, mateScores);
-    if (pairwise.compatibility == null) continue; // shouldn't happen for a formed group, but never fabricate a number
-    groupmates.push({
+  // Pairs are strictly 1-to-1, so there is exactly one other member.
+  const mateId = group.memberIds.find((id) => id !== participantId);
+  const mate = mateId ? room.participants.get(mateId) : undefined;
+  const mateScores = mateId ? sectionScores.get(mateId) : undefined;
+  if (!mate || !mateScores) return { status: "unmatched" };
+
+  const pairwise = computePairwiseCompatibility(myScores, mateScores);
+  // Shouldn't happen for a formed pair, but never fabricate a number.
+  if (pairwise.compatibility == null) return { status: "unmatched" };
+
+  return {
+    status: "matched",
+    kind: group.formedVia === "friend-match" ? "friend" : "primary",
+    groupmate: {
       id: mate.id,
       name: mate.name,
       bio: mate.bio,
       photoUrl: photoUrlFor(room.pin, mate, "lg"),
       compatibility: Math.round(pairwise.compatibility),
       reason: reasonText(pairwise.reasonSectionIndex),
-    });
-  }
-
-  if (groupmates.length === 0) return { status: "unmatched" };
-  return { status: "matched", groupmates };
+    },
+  };
 }
 
 export function buildHostEvent(room: Room): HostEvent {

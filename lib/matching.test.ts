@@ -4,7 +4,6 @@ import {
   computeGroups,
   computePairwiseCompatibility,
   computeSectionScores,
-  MAX_GROUP_SIZE,
   type MatchableParticipant,
 } from "@/lib/matching";
 import { SECTION_IDS, type SectionId } from "@/lib/sections";
@@ -20,20 +19,15 @@ function scores(partial: (number | null)[]): SectionScores {
   return { bySectionIndex, overall };
 }
 
-/** Defaults to the complement of `sex`, which reproduces exactly the opposite-sex pairing graph
- * these fixtures were originally written against — so a fixture only spells `desiredSex` out when
- * the preference itself is what's under test. `lgbtq+` has no complement, so it defaults to "any". */
-function complementOf(sex: Sex): DesiredSex {
-  if (sex === "male") return "female";
-  if (sex === "female") return "male";
-  return "any";
-}
+/** Every sex — the multi-select equivalent of "open to anyone", and the default for fixtures that
+ * aren't about preference at all. Fixtures testing the preference gate spell their own list out. */
+const ANYONE: DesiredSex = ["male", "female", "lgbtq_male", "lgbtq_female"];
 
 function person(
   id: string,
   sex: Sex,
   bySectionIndex: (number | null)[],
-  desiredSex: DesiredSex = complementOf(sex),
+  desiredSex: DesiredSex = ANYONE,
 ): MatchableParticipant {
   return { id, sex, desiredSex, sectionScores: scores(bySectionIndex) };
 }
@@ -184,7 +178,7 @@ describe("computePairwiseCompatibility", () => {
   });
 });
 
-// ---- Group formation ----
+// ---- Pair formation ----
 
 describe("computeGroups — population edge cases", () => {
   it("n=0 is a no-op", () => {
@@ -197,280 +191,210 @@ describe("computeGroups — population edge cases", () => {
     expect(result.unmatchedIds).toEqual(["a"]);
   });
 
-  it("a zero-answer participant (overall=null) is excluded entirely, never placed in any group", () => {
-    const zeroAnswers = {
+  it("a zero-answer participant (overall=null) is excluded entirely, never paired", () => {
+    const zeroAnswers: MatchableParticipant = {
       id: "z",
-      sex: "male" as Sex,
-      desiredSex: "any" as DesiredSex,
+      sex: "male",
+      desiredSex: ANYONE,
       sectionScores: scores([null, null, null, null]),
     };
     const result = computeGroups([zeroAnswers, person("m1", "male", [50]), person("f1", "female", [52])]);
     expect(result.unmatchedIds).toContain("z");
     expect(groupOf(result, "z")).toBeUndefined();
-    // the two real participants still form a normal pair
     expect(groupOf(result, "m1")?.memberIds).toEqual(expect.arrayContaining(["m1", "f1"]));
   });
 
-  it("all one sex, all open to anyone: they pair normally — 'any' genuinely accepts them", () => {
-    const result = computeGroups([
-      person("m1", "male", [80], "any"),
-      person("m2", "male", [82], "any"),
-      person("m3", "male", [10], "any"),
-      person("m4", "male", [12], "any"),
-    ]);
-    expect(result.unmatchedIds).toEqual([]);
+  it("every formed pair has exactly two members — matching is strictly 1-to-1", () => {
+    const people = Array.from({ length: 7 }, (_, i) => person(`p${i}`, "male", [50 + i]));
+    const result = computeGroups(people, { rng: () => 0 });
+    for (const g of result.groups) expect(g.memberIds).toHaveLength(2);
+  });
+
+  it("an odd population leaves exactly one person unmatched, and nobody is placed twice", () => {
+    const people = Array.from({ length: 5 }, (_, i) => person(`p${i}`, "male", [50 + i]));
+    const result = computeGroups(people, { rng: () => 0 });
+
     expect(result.groups).toHaveLength(2);
-    for (const g of result.groups) {
-      // Not a consolation "fallback" any more: both sides asked for this, so it's a real match.
-      expect(g.formedVia).toBe("primary-pair");
-      expect(g.memberIds).toHaveLength(2);
-    }
-  });
-
-  it("all one sex, all wanting the other sex: nobody is compatible, everyone honestly unmatched", () => {
-    const people = [
-      person("m1", "male", [80]),
-      person("m2", "male", [82]),
-      person("m3", "male", [10]),
-    ];
-    const result = computeGroups(people);
-    // The old engine would have force-paired these as a "same-sex fallback". Now that they have
-    // each said what they want, inventing that match would contradict them.
-    expect(result.groups).toEqual([]);
-    expect(result.unmatchedIds.sort()).toEqual(["m1", "m2", "m3"]);
-  });
-
-  it("exactly balanced (4M/4F): four pairs, zero leftovers, everyone placed exactly once", () => {
-    const people = [
-      person("m1", "male", [90]),
-      person("m2", "male", [60]),
-      person("m3", "male", [30]),
-      person("m4", "male", [5]),
-      person("f1", "female", [88]),
-      person("f2", "female", [58]),
-      person("f3", "female", [33]),
-      person("f4", "female", [3]),
-    ];
-    const result = computeGroups(people);
-    expect(result.unmatchedIds).toEqual([]);
-    expect(result.groups).toHaveLength(4);
-    const allMemberIds = result.groups.flatMap((g) => g.memberIds);
-    expect(allMemberIds.sort()).toEqual(people.map((p) => p.id).sort());
-    for (const g of result.groups) {
-      expect(g.memberIds).toHaveLength(2);
-      expect(g.formedVia).toBe("primary-pair");
-      const sexes = g.memberIds.map((id) => people.find((p) => p.id === id)!.sex);
-      expect(new Set(sexes).size).toBe(2); // one of each sex
-    }
-  });
-
-  it("wildly uneven (8M/2F) with strict opposite-sex preferences: only pairs form, the surplus is unmatched", () => {
-    // A leftover male can't join an existing [male, female] group: he'd have to be mutually
-    // compatible with *every* member, and the male already there isn't someone he asked for.
-    // So with strict preferences the group-growth path can't engage, and the honest outcome is
-    // 2 pairs plus 6 unmatched rather than a fabricated set of larger groups.
-    const males = Array.from({ length: 8 }, (_, i) => person(`m${i}`, "male", [50]));
-    const females = [person("f0", "female", [80]), person("f1", "female", [20])];
-    const result = computeGroups([...males, ...females]);
-
-    expect(result.groups.length).toBe(2);
-    const sizes = result.groups.map((g) => g.memberIds.length).sort((a, b) => a - b);
-    expect(sizes).toEqual([2, 2]);
-    for (const g of result.groups) {
-      expect(g.formedVia).toBe("primary-pair");
-    }
-
-    // everyone is accounted for exactly once, whether placed or unmatched
+    expect(result.unmatchedIds).toHaveLength(1);
     const allIds = [...result.groups.flatMap((g) => g.memberIds), ...result.unmatchedIds];
-    expect(allIds).toHaveLength(10);
-    expect(new Set(allIds).size).toBe(10);
-    expect(result.unmatchedIds).toHaveLength(6);
+    expect(allIds).toHaveLength(5);
+    expect(new Set(allIds).size).toBe(5);
   });
 
-  it("nobody is placed twice or dropped, whatever the preference mix", () => {
-    // 1 female, 5 males — with strict preferences only one pair can form, and the cap is never
-    // a factor. The load-bearing invariant is conservation: placed + unmatched === everyone.
-    const males = Array.from({ length: 5 }, (_, i) => person(`m${i}`, "male", [50]));
-    const females = [person("f0", "female", [51])];
-    const result = computeGroups([...males, ...females]);
-
-    for (const g of result.groups) {
-      expect(g.memberIds.length).toBeLessThanOrEqual(MAX_GROUP_SIZE);
-    }
-    const totalPlaced = result.groups.flatMap((g) => g.memberIds).length;
-    expect(totalPlaced + result.unmatchedIds.length).toBe(6);
+  it("everyone is accounted for exactly once, whatever the preference mix", () => {
+    const people = [
+      person("m1", "male", [50], ["female"]),
+      person("m2", "male", [60], ["female"]),
+      person("f1", "female", [55], ["male"]),
+      person("q1", "lgbtq_male", [70], ["lgbtq_female"]),
+      person("q2", "lgbtq_female", [72], ["lgbtq_male"]),
+    ];
+    const result = computeGroups(people, { rng: () => 0 });
+    const allIds = [...result.groups.flatMap((g) => g.memberIds), ...result.unmatchedIds];
+    expect(allIds.sort()).toEqual(["f1", "m1", "m2", "q1", "q2"]);
   });
 });
 
-describe("computeGroups — breadth-first leftover assignment", () => {
-  /** Sizes of the formed groups, ascending — the shape of the room, independent of who
-   * landed where (which is rng-driven under ties by design). */
-  function sizes(result: ReturnType<typeof computeGroups>) {
-    return result.groups.map((g) => g.memberIds.length).sort((a, b) => a - b);
-  }
-
-  /** These fixtures isolate *how leftovers spread across groups*, which is a question about group
-   * size, not about preference. Everyone is open to anyone so the compatibility gate is a no-op
-   * here and the spreading behavior is what's actually under test. (With strict opposite-sex
-   * preferences a group can never take a third member at all — covered separately above.) */
-  function open(id: string, sex: Sex, bySectionIndex: (number | null)[]) {
-    return person(id, sex, bySectionIndex, "any");
-  }
-
-  it("an even, fully-compatible room pairs everyone off rather than building bigger groups", () => {
-    // Once eligibility isn't capped by the smaller sex, greedy pairing consumes the whole pool,
-    // so everyone gets a dedicated match and no leftover exists to grow a group with.
-    const people = [
-      ...Array.from({ length: 4 }, (_, i) => open(`m${i}`, "male", [50])),
-      ...Array.from({ length: 2 }, (_, i) => open(`f${i}`, "female", [50])),
-    ];
-    const result = computeGroups(people, { rng: () => 0 });
-
-    expect(sizes(result)).toEqual([2, 2, 2]);
-    expect(result.unmatchedIds).toEqual([]);
-  });
-
-  it("an odd room leaves exactly one leftover, who joins a group instead of going unmatched", () => {
-    const people = [
-      ...Array.from({ length: 6 }, (_, i) => open(`m${i}`, "male", [50])),
-      ...Array.from({ length: 3 }, (_, i) => open(`f${i}`, "female", [50])),
-    ];
-    const result = computeGroups(people, { rng: () => 0 });
-
-    expect(sizes(result)).toEqual([2, 2, 2, 3]); // 4 pairs + the odd one absorbed
-    expect(result.unmatchedIds).toEqual([]);
-    const trio = result.groups.find((g) => g.memberIds.length === 3)!;
-    expect(trio.formedVia).toBe("leftover-join");
-  });
-
-  it("spreads leftovers across groups instead of hoarding them into one", () => {
-    // Two leftovers who can't pair with each other (no shared section => not comparable), each
-    // comparable to exactly one of the two existing pairs. Both must be placed, one per group.
-    const people = [
-      open("a1", "male", [50, null, null, null]),
-      open("a2", "female", [50, null, null, null]),
-      open("b1", "male", [null, 50, null, null]),
-      open("b2", "female", [null, 50, null, null]),
-      open("x", "male", [56, null, null, null]), // only comparable to the a-pair
-      open("y", "female", [null, 56, null, null]), // only comparable to the b-pair
-    ];
-    const result = computeGroups(people, { rng: () => 0 });
-
-    expect(result.unmatchedIds).toEqual([]);
-    expect(sizes(result)).toEqual([3, 3]); // one leftover each, not both piled into one group
-    expect(groupOf(result, "x")!.memberIds).toEqual(expect.arrayContaining(["a1", "a2"]));
-    expect(groupOf(result, "y")!.memberIds).toEqual(expect.arrayContaining(["b1", "b2"]));
-  });
-
-  it("skips a group the leftover is incompatible with and places them in one they fit", () => {
-    // x wants women. The all-male pair is rejected outright however good the score; the all-female
-    // pair accepts him. He must land there rather than be stranded.
-    const people = [
-      open("m1", "male", [50]),
-      open("m2", "male", [50]),
-      open("f1", "female", [50]),
-      open("f2", "female", [50]),
-      person("x", "male", [60], "female"),
-    ];
-    const result = computeGroups(people, { rng: () => 0 });
-
-    expect(result.unmatchedIds).toEqual([]);
-    const xGroup = groupOf(result, "x")!;
-    expect(xGroup.memberIds).toHaveLength(3);
-    expect(xGroup.memberIds).toEqual(expect.arrayContaining(["f1", "f2"]));
-    expect(xGroup.formedVia).toBe("leftover-join");
-  });
-});
-
-describe("computeGroups — desired-sex compatibility", () => {
+describe("computeGroups — desired-sex gate (primary pass)", () => {
   it("one-directional interest is not enough — both sides must accept the other", () => {
     // Perfect score match, but m2 only wants women. m1 would accept him; he wouldn't accept m1.
+    // The primary gate must refuse them; they only end up together via the disclosed friend pass.
     const result = computeGroups([
-      person("m1", "male", [50], "any"),
-      person("m2", "male", [50], "female"),
+      person("m1", "male", [50], ANYONE),
+      person("m2", "male", [50], ["female"]),
     ]);
-    expect(result.groups).toEqual([]);
-    expect(result.unmatchedIds.sort()).toEqual(["m1", "m2"]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].formedVia).toBe("friend-match");
   });
 
-  it("'any' accepts every sex, in both directions", () => {
+  it("selecting every sex accepts everyone, in both directions", () => {
     const result = computeGroups([
-      person("a", "lgbtq+", [50], "any"),
-      person("b", "male", [50], "any"),
-      person("c", "female", [52], "any"),
-      person("d", "lgbtq+", [52], "any"),
+      person("a", "lgbtq_male", [50], ANYONE),
+      person("b", "male", [50], ANYONE),
+      person("c", "female", [52], ANYONE),
+      person("d", "lgbtq_female", [52], ANYONE),
     ]);
     expect(result.unmatchedIds).toEqual([]);
     expect(result.groups).toHaveLength(2);
+    for (const g of result.groups) expect(g.formedVia).toBe("primary-pair");
   });
 
-  it("an lgbtq+ participant matches whoever asked for them, and is matched by their own ask", () => {
+  it("a multi-select preference matches any of the chosen sexes", () => {
+    // q1 is open to both flavours of LGBTQ+ but not to men or women; only q2 qualifies.
     const result = computeGroups([
-      person("q1", "lgbtq+", [50], "lgbtq+"),
-      person("q2", "lgbtq+", [51], "lgbtq+"),
-      person("m1", "male", [50], "female"),
+      person("q1", "lgbtq_female", [50], ["lgbtq_male", "lgbtq_female"]),
+      person("q2", "lgbtq_male", [51], ["lgbtq_female"]),
+      person("m1", "male", [50], ["female"]),
     ]);
-    const pair = groupOf(result, "q1");
-    expect(pair?.memberIds.sort()).toEqual(["q1", "q2"]);
+    expect(groupOf(result, "q1")?.memberIds.sort()).toEqual(["q1", "q2"]);
     expect(result.unmatchedIds).toEqual(["m1"]); // wanted a woman; there isn't one here
   });
 
-  it("a leftover is refused a group containing anyone incompatible, even when the fit score is perfect", () => {
-    // m1+f1 pair up. m2 is score-identical to both and f1 would accept him — but the group also
-    // contains m1, whom m2 did not ask for, so the whole group is rejected rather than joined
-    // on the strength of a good average.
+  it("the four sexes are distinct — wanting lgbtq_male does not match an lgbtq_female", () => {
+    // Both are lgbtq_female and both asked for lgbtq_male, so neither satisfies the other's ask.
+    // They fall through to the friend pass rather than counting as a preference match.
+    const result = computeGroups([
+      person("a", "lgbtq_female", [50], ["lgbtq_male"]),
+      person("b", "lgbtq_female", [50], ["lgbtq_male"]),
+    ]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].formedVia).toBe("friend-match");
+  });
+
+  it("a low-scoring preference match still beats sending both people to the friend pass", () => {
+    // a+b are mutually compatible but nearly opposite (compat 5). c is incompatible with both by
+    // preference, yet scores almost perfectly with b. The preference match must still win.
     const result = computeGroups(
       [
-        person("m1", "male", [50], "female"),
-        person("f1", "female", [50], "any"),
-        person("m2", "male", [50], "female"),
+        person("a", "male", [0], ["female"]),
+        person("b", "female", [95], ["male"]),
+        person("c", "male", [95], ["male"]),
+      ],
+      { rng: () => 0 },
+    );
+    expect(groupOf(result, "a")?.memberIds.sort()).toEqual(["a", "b"]);
+    expect(groupOf(result, "a")?.formedVia).toBe("primary-pair");
+    expect(result.unmatchedIds).toEqual(["c"]);
+  });
+});
+
+describe("computeGroups — friend-match fallback", () => {
+  it("pairs leftovers by score alone when preferences left them stranded, and labels it", () => {
+    // Two men who both want women, with no women present: the primary pass can't touch them, so
+    // the friend pass pairs them on score rather than leaving them with nobody.
+    const result = computeGroups([
+      person("m1", "male", [50], ["female"]),
+      person("m2", "male", [52], ["female"]),
+    ]);
+
+    expect(result.unmatchedIds).toEqual([]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].memberIds.sort()).toEqual(["m1", "m2"]);
+    expect(result.groups[0].formedVia).toBe("friend-match");
+  });
+
+  it("only runs for people the primary pass could not place", () => {
+    // f1+m1 are mutually compatible and pair first; q1+q2 are left over and friend-match.
+    const result = computeGroups(
+      [
+        person("m1", "male", [50], ["female"]),
+        person("f1", "female", [50], ["male"]),
+        person("q1", "lgbtq_male", [80], ["female"]),
+        person("q2", "lgbtq_female", [80], ["male"]),
       ],
       { rng: () => 0 },
     );
 
-    expect(result.groups).toHaveLength(1);
-    expect(result.groups[0].memberIds).toHaveLength(2);
-    expect(result.unmatchedIds).toHaveLength(1);
+    expect(groupOf(result, "m1")?.formedVia).toBe("primary-pair");
+    expect(groupOf(result, "q1")?.memberIds.sort()).toEqual(["q1", "q2"]);
+    expect(groupOf(result, "q1")?.formedVia).toBe("friend-match");
+    expect(result.unmatchedIds).toEqual([]);
   });
 
-  it("a residual set with no internally-compatible pair is never force-paired", () => {
-    // Two men who both want women, and no women present: the primary pass leaves them, and
-    // there is deliberately no fallback tier left to pair them anyway.
+  it("picks the closest-scoring partner among the leftovers", () => {
+    // All three want women and none are present, so all three land in the friend pass. m1 and m3
+    // score identically; m2 is far off and is the one left over.
+    const result = computeGroups(
+      [
+        person("m1", "male", [50], ["female"]),
+        person("m2", "male", [0], ["female"]),
+        person("m3", "male", [50], ["female"]),
+      ],
+      { rng: () => 0 },
+    );
+
+    expect(groupOf(result, "m1")?.memberIds.sort()).toEqual(["m1", "m3"]);
+    expect(result.unmatchedIds).toEqual(["m2"]);
+  });
+
+  it("someone with nobody left at all is honestly unmatched, never fabricated a partner", () => {
+    const result = computeGroups([person("m1", "male", [50], ["female"])]);
+    expect(result.groups).toEqual([]);
+    expect(result.unmatchedIds).toEqual(["m1"]);
+  });
+
+  it("leaves nobody in the friend pass when two people share no comparable section", () => {
+    // Disjoint sections => compatibility is null, so even the ungated pass can't pair them.
     const result = computeGroups([
-      person("m1", "male", [50], "female"),
-      person("m2", "male", [50], "female"),
+      person("a", "male", [50, null, null, null], ["female"]),
+      person("b", "male", [null, 50, null, null], ["female"]),
     ]);
     expect(result.groups).toEqual([]);
-    expect(result.unmatchedIds.sort()).toEqual(["m1", "m2"]);
+    expect(result.unmatchedIds.sort()).toEqual(["a", "b"]);
   });
 });
 
-describe("computeGroups — deterministic tie-breaking", () => {
-  // m1 is tied (within TIE_TOLERANCE=2) between f1 (compat 100) and f2 (compat 98).
-  // m2/f1 and m2/f2 are both far worse (0 and 2) and must never be chosen in round 1
-  // regardless of rng output.
-  const m1 = person("m1", "male", [100]);
-  const m2 = person("m2", "male", [0]);
-  const f1 = person("f1", "female", [100]);
-  const f2 = person("f2", "female", [98]);
+describe("computeGroups — exact-tie breaking", () => {
+  // m1 scores 100 against f1 and 99.6 against f2 — both round to 100, so they are a genuine tie.
+  // m2 is far off both and must never win round one.
+  const m1 = person("m1", "male", [100], ["female"]);
+  const m2 = person("m2", "male", [0], ["female"]);
+  const f1 = person("f1", "female", [100], ["male"]);
+  const f2 = person("f2", "female", [99.6], ["male"]);
 
-  it("rng=0 deterministically picks the first tied candidate (m1-f1)", () => {
+  it("rng=0 picks the first of the tied candidates", () => {
     const result = computeGroups([m1, m2, f1, f2], { rng: () => 0 });
     expect(groupOf(result, "m1")?.memberIds.sort()).toEqual(["f1", "m1"]);
-    expect(groupOf(result, "m2")?.memberIds.sort()).toEqual(["f2", "m2"]);
   });
 
-  it("a different rng output picks the other tied candidate (m1-f2), proving randomization is real", () => {
+  it("a different rng output picks the other tied candidate, proving randomization is real", () => {
     const result = computeGroups([m1, m2, f1, f2], { rng: () => 0.99 });
     expect(groupOf(result, "m1")?.memberIds.sort()).toEqual(["f2", "m1"]);
-    expect(groupOf(result, "m2")?.memberIds.sort()).toEqual(["f1", "m2"]);
   });
 
-  it("never picks the out-of-tolerance candidate regardless of rng", () => {
+  it("never picks a candidate whose score rounds lower, whatever the rng", () => {
     for (const rngValue of [0, 0.25, 0.5, 0.75, 0.99]) {
       const result = computeGroups([m1, m2, f1, f2], { rng: () => rngValue });
-      // m1 must always be paired with f1 or f2 in round 1 — never is m2 involved in round 1's pick
       expect(["f1", "f2"]).toContain(groupOf(result, "m1")?.memberIds.find((id) => id !== "m1"));
+    }
+  });
+
+  it("a whole-point difference is not a tie — the higher score always wins", () => {
+    // 100 vs 98 round to different integers, so f2 is never in the running for m1.
+    const nearMiss = person("f2", "female", [98], ["male"]);
+    for (const rngValue of [0, 0.5, 0.99]) {
+      const result = computeGroups([m1, m2, f1, nearMiss], { rng: () => rngValue });
+      expect(groupOf(result, "m1")?.memberIds.sort()).toEqual(["f1", "m1"]);
     }
   });
 });
@@ -478,10 +402,10 @@ describe("computeGroups — deterministic tie-breaking", () => {
 describe("computeGroups — determinism under reordered input", () => {
   it("is deterministic regardless of input order, given a fixed rng", () => {
     const people = [
-      person("m1", "male", [90]),
-      person("m2", "male", [40]),
-      person("f1", "female", [88]),
-      person("f2", "female", [38]),
+      person("m1", "male", [90], ["female"]),
+      person("m2", "male", [40], ["female"]),
+      person("f1", "female", [88], ["male"]),
+      person("f2", "female", [38], ["male"]),
     ];
     const forward = computeGroups(people, { rng: () => 0 });
     const backward = computeGroups([...people].reverse(), { rng: () => 0 });
@@ -491,3 +415,4 @@ describe("computeGroups — determinism under reordered input", () => {
     expect(asPairs(forward)).toEqual(asPairs(backward));
   });
 });
+

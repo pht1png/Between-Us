@@ -3,38 +3,40 @@ import { Fraunces, Space_Grotesk, IBM_Plex_Sans_Thai, JetBrains_Mono } from "nex
 import "./globals.css";
 
 const fraunces = Fraunces({
-  variable: "--font-fraunces",
-  subsets: ["latin"],
+	variable: "--font-fraunces",
+	subsets: ["latin"],
 });
 
 const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["latin"],
+	variable: "--font-space-grotesk",
+	subsets: ["latin"],
 });
 
 const ibmPlexSansThai = IBM_Plex_Sans_Thai({
-  variable: "--font-ibm-plex-thai",
-  subsets: ["thai", "latin"],
-  weight: ["400", "500", "600", "700"],
+	variable: "--font-ibm-plex-thai",
+	subsets: ["thai", "latin"],
+	weight: ["400", "500", "600", "700"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
+	variable: "--font-jetbrains-mono",
+	subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Between Us",
-  description: "ตอบคำถามสั้น ๆ แล้วเจอคนที่เข้ากับคุณที่สุดในงานนี้",
+	title: "Between Us",
+	description: "ตอบคำถามสั้น ๆ แล้วเจอคนที่เข้ากับคุณที่สุดในงานนี้",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  return (
-    <html
-      lang="th"
-      className={`${fraunces.variable} ${spaceGrotesk.variable} ${ibmPlexSansThai.variable} ${jetbrainsMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-background text-foreground">{children}</body>
-    </html>
-  );
+	return (
+		<html
+			lang="th"
+			className={`${fraunces.variable} ${spaceGrotesk.variable} ${ibmPlexSansThai.variable} ${jetbrainsMono.variable} h-full antialiased`}
+		>
+			<body className="min-h-full flex flex-col bg-primary/30 text-foreground" suppressHydrationWarning>
+				{children}
+			</body>
+		</html>
+	);
 }
