@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-import { findParticipantByResumeToken, getRoom } from "@/lib/rooms";
+import { findParticipantByResumeToken, getRoom, isRoomHost } from "@/lib/rooms";
 
 const DATA_URL_PREFIX = /^data:image\/(jpeg|png|webp);base64,/;
 
@@ -32,7 +32,7 @@ export async function GET(
   const cookieStore = await cookies();
   const hostToken = cookieStore.get("host_token")?.value;
   const resumeToken = cookieStore.get("resume_token")?.value;
-  const isHost = !!hostToken && room.hostToken === hostToken;
+  const isHost = isRoomHost(room, hostToken);
   const isMember = !!resumeToken && findParticipantByResumeToken(room, resumeToken) !== undefined;
   if (!isHost && !isMember) {
     return NextResponse.json(

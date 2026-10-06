@@ -39,8 +39,10 @@ export default function PlayLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     if (state.status === "fatal") {
+      // The room or this participant no longer resolves, so the stored PIN is worthless — drop it
+      // and explain what happened, rather than dumping them on a bare join form with no context.
       clearStoredPin();
-      router.replace("/join");
+      router.replace(`/room-gone?message=${encodeURIComponent(state.message)}`);
       return;
     }
     if (state.status === "open") {

@@ -16,12 +16,22 @@ const ROOM_CAPACITY = 200;
 // must stay alive long enough for the host to download it. Shortening ENDED_ROOM_TTL_MS is how you
 // would silently start destroying results.
 
-/** From the moment the game ends. Long enough for stragglers on the reveal screen and for the host
- * to export, short enough that a venue running back-to-back sessions doesn't accumulate. */
-const ENDED_ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+/** From the moment the game ends. This is the backstop for a host who never presses the ended
+ * screen's "เสร็จสิ้นและออกจากระบบ" — that button ends and logs out but does not free the room, so
+ * this window is also how long players stay on their reveal screen after a host has left. One hour
+ * is a deliberate product choice: it covers stragglers and an export, and nothing lingers overnight. */
+const ENDED_ROOM_TTL_MS = 60 * 60 * 1000;
 
-/** For a room that never reached "ended" — the host closed the tab, or created a replacement. Longer
- * than the ended window because it might still be live. */
+/** Only governs a room still stuck in `"lobby"` — the host closed the tab before ever starting it.
+ * Longer than the ended window on the chance it's still genuinely being set up. Deliberately does
+ * NOT apply once a room reaches "asking": that room is self-bounding (the sum of its remaining
+ * question durations is a hard, computable upper bound on how long it can run), so it will reach
+ * "ended" — and ENDED_ROOM_TTL_MS — on its own. Applying this TTL to an "asking" room was a real
+ * bug: it measured from `createdAt`, not from idleness, so a room a host set up hours before an
+ * event could be swept mid-game, out from under an active quiz, the moment 6h had passed since
+ * creation — regardless of whether the game was running. The "or created a replacement" case this
+ * comment used to also cover is already handled by createRoom's own immediate endGame() call on
+ * the old room, which gives it an `endedAt` and moves it to the ended branch instead. */
 const ABANDONED_ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
@@ -81,17 +91,19 @@ function freeRoom(pin: string): void {
  * Frees every room past its retention window. Returns how many went.
  *
  * `now` is injectable for the same reason `computeGroups` takes an injectable `rng`: so tests can
- * assert the policy without waiting two hours.
+ * assert the policy without waiting an hour.
  */
 export function sweepRooms(now: number = Date.now()): number {
   const store = getStore();
   let freed = 0;
   for (const room of Array.from(store.rooms.values())) {
-    const expiresAt =
-      room.endedAt !== null
-        ? room.endedAt + ENDED_ROOM_TTL_MS
-        : room.createdAt + ABANDONED_ROOM_TTL_MS;
-    if (now > expiresAt) {
+    if (room.endedAt !== null) {
+      if (now > room.endedAt + ENDED_ROOM_TTL_MS) {
+        freeRoom(room.pin);
+        freed++;
+      }
+    } else if (room.status === "lobby" && now > room.createdAt + ABANDONED_ROOM_TTL_MS) {
+      // Only "lobby" — an "asking" room is never abandoned in this sense, see ABANDONED_ROOM_TTL_MS.
       freeRoom(room.pin);
       freed++;
     }
@@ -118,6 +130,20 @@ export function isLoggedIn(token: string): boolean {
   return getStore().loggedInTokens.has(token);
 }
 
+/**
+ * The one definition of "this request is the host of this room": a live session that also owns it.
+ * Every host-authorised route goes through here so they cannot drift apart.
+ *
+ * They used to — only the export route checked the session, while start/advance/end, the host
+ * stream, the photo route and rooms/current compared `room.hostToken` alone. A token copied before
+ * logout therefore kept working on all of them (roster, feedback, driving the game) until the room
+ * was swept. Both halves matter: the session check makes logout actually revoke, and the ownership
+ * check keeps one host's valid session from driving another host's room.
+ */
+export function isRoomHost(room: Room, token: string | undefined): boolean {
+  return !!token && room.hostToken === token && isLoggedIn(token);
+}
+
 // ---- Lookup ----
 
 export function getRoom(pin: string): Room | undefined {
@@ -125,6 +151,9 @@ export function getRoom(pin: string): Room | undefined {
 }
 
 export function findRoomByHostToken(token: string): Room | undefined {
+  // A revoked session must not resolve a room, or a copied token could still read it via
+  // GET /api/admin/rooms/current after the host logged out.
+  if (!isLoggedIn(token)) return undefined;
   const pin = getStore().activeRoomByToken.get(token);
   return pin ? getStore().rooms.get(pin) : undefined;
 }
@@ -299,9 +328,14 @@ export function submitFeedback(participant: Participant, feedback: string): { ok
 
 // ---- Phase transitions ----
 // Invariant: everything below is fully synchronous — no `await` anywhere in this section.
-// That's what makes "the host clicks Next at the exact instant the timer fires" a non-issue:
-// only one of the two call sites can ever be mid-execution, and the generation counter makes
-// the loser's callback a no-op instead of a double-advance.
+// That's what makes "two triggers land at the same instant" a non-issue: only one of the call
+// sites can ever be mid-execution, and the generation counter makes the loser's callback a no-op
+// instead of a double-advance.
+//
+// There are three trigger sources for an advance, all funnelling through advanceQuestion():
+//   1. the per-question auto-advance timer (scheduleAutoAdvance),
+//   2. advanceIfComplete(), the instant the last participant answers (the answers route),
+//   3. the dormant host-only POST /api/admin/rooms/[pin]/advance escape hatch.
 
 function clearRoomTimer(pin: string): void {
   const store = getStore();
@@ -336,8 +370,9 @@ export function startRoom(room: Room): void {
 }
 
 /** Computes section scores + groups exactly once — idempotent by construction, not by luck.
- * Called from both a host-click route and the internal auto-advance timer; whichever gets
- * here first (they can't race, Node's event loop is single-threaded) does the real work. */
+ * Reached from the auto-advance timer, from advanceIfComplete once everyone has answered the last
+ * question, and from the end/create routes; whichever gets here first (they can't race, Node's
+ * event loop is single-threaded) does the real work. */
 function endGame(room: Room): void {
   if (room.status === "ended") return;
   clearRoomTimer(room.pin);
@@ -375,4 +410,39 @@ export function advanceQuestion(room: Room): void {
 
 export function endRoom(room: Room): void {
   endGame(room);
+}
+
+function everyoneHasAnswered(room: Room): boolean {
+  // Unreachable through the answers route (it only gets here with a resolved participant, so the
+  // room has at least one), but an empty room must never read as "everyone's done".
+  if (room.participants.size === 0) return false;
+  for (const participant of room.participants.values()) {
+    if (participant.answers[room.currentIndex] == null) return false;
+  }
+  return true;
+}
+
+/**
+ * Moves the room on the instant the last participant answers, instead of waiting out the rest of the
+ * question's duration. Called after every successful answer submission.
+ *
+ * This only *accelerates* `scheduleAutoAdvance`'s timer — it never replaces it. The timer stays
+ * armed and remains the only thing that rescues a room from someone who never submits at all (a
+ * closed or backgrounded tab runs no client JS, so nothing auto-submits on their behalf).
+ *
+ * Reuses `advanceQuestion` verbatim, so running off the last question falls through to `endGame`
+ * via exactly the same path the timer already takes — nothing here special-cases the end of a game.
+ * `advanceQuestion`'s own `clearRoomTimer` genuinely cancels the superseded timeout rather than
+ * leaving it to fire and no-op, so there's no window where both triggers can advance.
+ *
+ * Both the participant count and each answer are read live rather than snapshotted at question
+ * start, which is what makes a mid-question joiner correctly hold the room back until they answer
+ * too. Returns whether it advanced, so the caller can skip a redundant broadcast.
+ */
+export function advanceIfComplete(room: Room): boolean {
+  if (room.status !== "asking") return false;
+  if (!everyoneHasAnswered(room)) return false;
+  advanceQuestion(room);
+  broadcastRoom(room);
+  return true;
 }

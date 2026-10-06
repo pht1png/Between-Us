@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { buildResultCsv } from "@/lib/export";
-import { getRoom, isLoggedIn } from "@/lib/rooms";
+import { getRoom, isRoomHost } from "@/lib/rooms";
 
 /** `2026-09-28` — sorts correctly in a downloads folder, which is where these will pile up. */
 function isoDate(now: number): string {
@@ -14,9 +14,9 @@ function isoDate(now: number): string {
  * memory and freed by the reaper — so it is deliberately available for the whole life of the room,
  * not only at the moment the game ends.
  *
- * Unlike start/advance/end, this also requires `isLoggedIn(token)`: the response is a file of every
- * participant's name, bio, answers and free-text feedback, so a logged-out session's stale cookie
- * should not still be able to pull it.
+ * Host-only via `isRoomHost` (a live session that owns the room). That matters most here: the response
+ * is a file of every participant's name, bio, answers and free-text feedback, so a logged-out
+ * session's stale cookie must not still be able to pull it.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ pin: string }> }) {
   const { pin } = await params;
@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pin
       { status: 404 },
     );
   }
-  if (!token || !isLoggedIn(token) || room.hostToken !== token) {
+  if (!isRoomHost(room, token)) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "คุณไม่มีสิทธิ์เข้าถึงห้องนี้" } },
       { status: 401 },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { ScaleSlider } from "@/components/scale-slider";
@@ -68,40 +68,71 @@ function QuestionForm({ asking, pin }: { asking: AskingEvent; pin: string }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
+  // The tick closure below is created once per question and never re-captures state, so anything it
+  // reads has to live in a ref. (This whole component is remounted per question via the parent's
+  // `key`, so every ref starts fresh — none of them need resetting by hand.)
+  const valueRef = useRef(value);
   useEffect(() => {
-    function tick() {
-      setSecondsLeft(Math.max(0, Math.round((asking.endsAt - Date.now()) / 1000)));
-    }
-    const id = setInterval(tick, 250);
-    return () => clearInterval(id);
-  }, [asking.endsAt]);
+    valueRef.current = value;
+  }, [value]);
+  const submittingRef = useRef(false);
+  /** True once this question's answer has been sent by *either* path. Set on the manual path too,
+   * not just the timeout one: a manual submit a second before the clock runs out would otherwise be
+   * chased by a pointless duplicate auto-submit on the next tick, before the layout routes away. */
+  const hasSubmittedRef = useRef(false);
 
-  const timedOut = secondsLeft !== null && secondsLeft <= 0;
-  const mm = secondsLeft === null ? "-" : String(Math.floor(secondsLeft / 60)).padStart(1, "0");
-  const ss = secondsLeft === null ? "--" : String(secondsLeft % 60).padStart(2, "0");
-
-  async function handleSubmit() {
-    if (submitting || timedOut) return;
+  async function submit(submittedValue: number) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const res = await fetch(`/api/rooms/${pin}/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionIndex: asking.question.index, value }),
+        body: JSON.stringify({ questionIndex: asking.question.index, value: submittedValue }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setSubmitError(body?.error?.message ?? "ส่งคำตอบไม่สำเร็จ ลองใหม่อีกครั้ง");
         setSubmitting(false);
+        submittingRef.current = false;
         return;
       }
-      // Submission lands via the SSE roster broadcast; the layout routes to /waiting once
-      // `yourAnswer` flips, so there's nothing further to do here on success.
+      hasSubmittedRef.current = true;
+      // Submission lands via the SSE broadcast; the layout routes to /waiting once `yourAnswer`
+      // flips (or straight to the next question, if that answer was the one that completed it),
+      // so there's nothing further to do here on success.
     } catch {
       setSubmitError("ส่งคำตอบไม่สำเร็จ ลองใหม่อีกครั้ง");
       setSubmitting(false);
+      submittingRef.current = false;
     }
+  }
+
+  useEffect(() => {
+    function tick() {
+      const remaining = Math.max(0, Math.round((asking.endsAt - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      // Out of time and still unanswered: send whatever the slider currently reads rather than
+      // letting the question lapse into a null. Untouched, that's still the default 5.
+      if (remaining <= 0 && !hasSubmittedRef.current) {
+        void submit(valueRef.current);
+      }
+    }
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+    // `submit` closes over `pin` and `asking.question.index`, both fixed for this component's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asking.endsAt]);
+
+  const timedOut = secondsLeft !== null && secondsLeft <= 0;
+  const mm = secondsLeft === null ? "-" : String(Math.floor(secondsLeft / 60)).padStart(1, "0");
+  const ss = secondsLeft === null ? "--" : String(secondsLeft % 60).padStart(2, "0");
+
+  function handleSubmit() {
+    if (timedOut) return; // past the deadline the tick above owns the submission
+    void submit(value);
   }
 
   return (

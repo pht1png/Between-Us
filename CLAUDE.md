@@ -43,16 +43,57 @@ Sizing, measured at 150 participants: ~100 MB Next.js baseline + ~35 MB of base6
 
 `sweepRooms(now = Date.now())` in `lib/rooms.ts` frees expired rooms on a lazily-armed 10-minute interval (`.unref()`'d, or a ten-minute timer would hold vitest open). Two windows, because the two cases differ:
 
-- `ENDED_ROOM_TTL_MS` (2 h from `room.endedAt`, set by `endGame`) — stragglers are still on the reveal screen submitting feedback, and the host still has to export.
-- `ABANDONED_ROOM_TTL_MS` (6 h from `room.createdAt`, when `endedAt` is still null) — the host closed the tab or replaced the room; it might still be live, so it gets longer.
+- `ENDED_ROOM_TTL_MS` (1 h from `room.endedAt`, set by `endGame`) — a deliberate product choice, and the backstop for a host who never presses the ended screen's "เสร็จสิ้นและออกจากระบบ". Stragglers are still on the reveal screen submitting feedback, and the host still has to export.
+- `ABANDONED_ROOM_TTL_MS` (6 h from `room.createdAt`) — **only for a room still in `"lobby"`**, i.e. one the host set up and never started. A room that has reached `"asking"` is deliberately exempt from every sweep: it is self-bounding (the sum of its remaining question durations is a hard upper bound), so it reaches `"ended"` on its own and the ended window takes over. Gating this on status is not cosmetic — measuring from `createdAt` regardless of status meant a room prepared hours before an event could be deleted *mid-game*, which is exactly what surfaced as a mysterious "ไม่พบห้องนี้" during a live quiz.
 
-`now` is injectable for the same reason `computeGroups` takes an injectable `rng`: so tests assert the policy without waiting two hours.
+`now` is injectable for the same reason `computeGroups` takes an injectable `rng`: so tests assert the policy without waiting an hour.
+
+The ended screen's exit button (`resetAndLogOut` in `app/admin/page.tsx`) ends the room, revokes the session via `POST /api/admin/logout`, and navigates to `/`. It does **not** free the room — players may still be on their reveal screens — so the sweep above is the only thing that ever deletes one. It also has a consequence worth knowing: `room.hostToken` is the token that was revoked, and logging back in mints a *different* `host_token`, so **after logout the room can never be exported again**, even while it is still in memory. That is why the download button sits above the exit button and the notice text tells the host to download before leaving.
 
 **The ordering rule that governs all of this:** `room.matchResult` exists only as a property of an in-memory object, so `GET /api/admin/rooms/[pin]/export` (`lib/export.ts`, pure and testable) is the *only* way an event's results survive. Freeing must never precede the host's chance to download — shortening `ENDED_ROOM_TTL_MS` is how you would silently start destroying results. The same reasoning is why the CSV header carries each question's full text rather than "ข้อ 1": once the room is freed there is nothing left to look the questions up in.
 
 `freeRoom` must clear the question timer, call `closeRoomStreams(pin)` (in `bus.ts` — the allowed `rooms.ts` → `bus.ts` direction) and drop the stale `activeRoomByToken` entry; missing any of those frees the `Room` while leaking whatever still referenced it. Creating a room **ends** the host's previous one and broadcasts, so its players reach their reveal rather than hanging — but leaves it resident, so an accidental re-create can't vaporize results before anyone exports them.
 
 Because the export writes Thai text a host opens in Excel, `toCsv` emits a UTF-8 BOM and CRLF line endings, and guards every participant-typed cell against spreadsheet formula injection. Verify changes to it by *opening the file in Excel*, not by reading it in a terminal — a terminal looks fine either way and proves nothing.
+
+### The quiz advances itself
+
+There are no host controls during a question — no "next", no "end". A question ends one of two ways,
+both funnelling through `advanceQuestion` in `lib/rooms.ts` (which also falls through to `endGame`
+off the last question, so "the game ends itself" needs no separate handling):
+
+- **`advanceIfComplete(room)`**, called by the answers route right after a successful `submitAnswer`,
+  in the same synchronous tick. It advances the moment every participant has answered. Participant
+  count and answers are read live, never snapshotted, which is what lets a mid-question joiner
+  correctly hold the room back until they answer too.
+- **`scheduleAutoAdvance`'s per-question timer**, unchanged, as the fallback. It is the only thing
+  that rescues a room from someone who never submits at all — a closed or backgrounded tab runs no
+  JS, so nothing auto-submits for them.
+
+On the client, `QuestionForm`'s countdown auto-submits the slider's current value when it reaches
+zero, so an idle-but-connected player records an answer (5 if untouched) instead of a `null`. The
+re-entrancy guards there are **refs, not state**, because the tick closure is created once per
+question and never re-captures state — and the "already submitted" ref is set on the manual path
+too, or a manual submit just before the buzzer gets chased by a duplicate auto-submit.
+
+`POST /api/admin/rooms/[pin]/advance` is kept but **dormant** — no UI calls it; it exists as a
+host-only escape hatch for a stuck room mid-event.
+
+### A dead room sends both roles to `/room-gone`
+
+`app/room-gone/page.tsx` is a standalone page (outside both the `(play)` and admin layouts, since
+neither a stored PIN nor a live stream exists by then). It shows the server's own Thai message from
+`?message=`, so the copy can't drift from the API. Both `app/(play)/layout.tsx` and
+`app/admin/page.tsx` redirect there on `stream.status === "fatal"`, the player clearing its stored
+PIN first.
+
+**The non-obvious part is how "fatal" is detected.** The stream route answers a missing room with a
+404 that carries a `fatal` event in its body — but a browser discards the body of an EventSource
+connection it failed, so that event never reaches the client. `useRoomStream` therefore also listens
+for the native `error` event and treats **`readyState === CLOSED`** as fatal (CONNECTING means a
+transient drop it should keep retrying — that reconnect is load-bearing, don't break it), then asks
+`/api/rooms/[pin]/state` for the real reason. Without that listener a player with a dead PIN just
+hangs on a spinner forever.
 
 ### Realtime is SSE, one endpoint, two roles
 
@@ -69,7 +110,7 @@ Because the export writes Thai text a host opens in Excel, `toCsv` emits a UTF-8
 
 Both are httpOnly and are plain `crypto.randomUUID()` values — unsigned on purpose, because every request already does a stateful in-memory lookup to resolve them.
 
-- `host_token` — admin session. Room *creation* only needs `isLoggedIn(token)`; the per-room routes (`start`/`advance`/`end`) additionally require `room.hostToken === token`, so a valid session can't drive someone else's room.
+- `host_token` — admin session. Room *creation* only needs `isLoggedIn(token)`. Every route that acts as a room's host (`start`/`advance`/`end`/`export`, the host stream, the photo route's host branch, and `rooms/current`) goes through the single `isRoomHost(room, token)` check in `lib/rooms.ts`: a **live session** (`isLoggedIn`) that **owns the room** (`room.hostToken === token`). Both halves matter — the session half is what makes logout actually revoke (a token copied before logout stops working everywhere), the ownership half stops a valid session from driving someone else's room. Don't inline a `room.hostToken === token` comparison in a new route; that is exactly how these drifted apart before. `findRoomByHostToken` applies the same session check.
 - `resume_token` — participant identity, resolved via `findParticipantByResumeToken`. Rejoining with an existing token **updates that participant in place** rather than creating a duplicate, which is what makes reconnects and a second tab safe.
 
 The client never learns a room's PIN from a cookie, so `lib/client-store.ts` keeps it in `localStorage` (`betweenus:pin`), written by the join flow and read by the `(play)` layout.

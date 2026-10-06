@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 import { broadcastRoom } from "@/lib/bus";
-import { endRoom, getRoom } from "@/lib/rooms";
+import { endRoom, getRoom, isRoomHost } from "@/lib/rooms";
 
 export async function POST(_request: Request, { params }: { params: Promise<{ pin: string }> }) {
   const { pin } = await params;
@@ -16,7 +16,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ pi
       { status: 404 },
     );
   }
-  if (!token || room.hostToken !== token) {
+  if (!isRoomHost(room, token)) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "คุณไม่มีสิทธิ์เข้าถึงห้องนี้" } },
       { status: 401 },

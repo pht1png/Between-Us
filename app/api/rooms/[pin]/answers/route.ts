@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 import { scheduleRosterFlush } from "@/lib/bus";
-import { findParticipantByResumeToken, getRoom, submitAnswer } from "@/lib/rooms";
+import { advanceIfComplete, findParticipantByResumeToken, getRoom, submitAnswer } from "@/lib/rooms";
 import { answerSchema } from "@/lib/validation";
 
 export async function POST(request: Request, { params }: { params: Promise<{ pin: string }> }) {
@@ -52,7 +52,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ pin
 		return NextResponse.json({ error: result.error }, { status: result.status });
 	}
 
-	scheduleRosterFlush(room);
+	// Synchronous and in the same tick as submitAnswer, so no other request can interleave between
+	// storing the answer and deciding whether that was the last one. advanceIfComplete sends its own
+	// immediate broadcast when it advances — a roster flush on top would only resend the same state.
+	if (!advanceIfComplete(room)) {
+		scheduleRosterFlush(room);
+	}
 
 	return NextResponse.json({ ok: true });
 }

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, Download, LogOut, Plus, Sparkles, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, Copy, Download, LogOut, Plus, Sparkles, X } from "lucide-react";
 
 import { ParticipantMonitor, type MonitoredParticipant } from "@/components/participant-monitor";
 import { RoomQr } from "@/components/room-qr";
@@ -143,6 +144,7 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 type AuthStatus = "checking" | "loggedOut" | "loggedIn";
 
 export default function AdminPage() {
+	const router = useRouter();
 	const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
 	const [password, setPassword] = useState("");
 	const [loginError, setLoginError] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export default function AdminPage() {
 	const [origin] = useState<string | null>(() => (typeof window !== "undefined" ? window.location.origin : null));
 	const [copied, setCopied] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [leaving, setLeaving] = useState(false);
 
 	const stream = useRoomStream<HostEvent>(pin);
 	const hostEvent = stream.status === "open" ? stream.data : null;
@@ -183,10 +186,17 @@ export default function AdminPage() {
 		};
 	}, []);
 
-	// Derived, not stored: a fatal stream (e.g. the room vanished after a server restart) just
-	// means "no active room" — no separate effect needed to mirror it into state.
 	const roomActive = pin !== null && stream.status !== "fatal";
-	const streamFatalMessage = stream.status === "fatal" ? stream.message : null;
+
+	// A fatal stream means this room is unreachable for good — swept, lost to a restart, or this
+	// session no longer resolves as its host. Falling back to the quiz builder used to show the
+	// server's "ไม่พบห้องนี้" as an inline error under the *create room* button, which read as though
+	// creating a room had failed. Send the host somewhere that actually says what happened instead.
+	// No setState here: navigating away unmounts this page, which discards `pin` with it.
+	useEffect(() => {
+		if (stream.status !== "fatal") return;
+		router.replace(`/room-gone?message=${encodeURIComponent(stream.message)}`);
+	}, [stream, router]);
 
 	async function handleLogin(event: React.FormEvent) {
 		event.preventDefault();
@@ -275,13 +285,9 @@ export default function AdminPage() {
 		if (!res.ok) setActionError(await readErrorMessage(res, "เริ่มเกมไม่สำเร็จ"));
 	}
 
-	async function nextQuestion() {
-		if (!pin) return;
-		setActionError(null);
-		const res = await fetch(`/api/admin/rooms/${pin}/advance`, { method: "POST" });
-		if (!res.ok) setActionError(await readErrorMessage(res, "ไปข้อถัดไปไม่สำเร็จ"));
-	}
-
+	/** Kept for `resetAndLogOut` only — there is no mid-game "end" button any more, the room ends
+	 * itself after the last question. Idempotent server-side, so calling it on an already-ended
+	 * room is a no-op. */
 	async function endGame() {
 		if (!pin) return;
 		setActionError(null);
@@ -289,9 +295,17 @@ export default function AdminPage() {
 		if (!res.ok) setActionError(await readErrorMessage(res, "จบเกมไม่สำเร็จ"));
 	}
 
-	function resetForNewRoom() {
-		setPin(null);
-		setActionError(null);
+	/** The host's "I'm done" exit from the ended screen: end the room, revoke the session, go home.
+	 * Sequential on purpose — the end call needs the host_token that logout is about to revoke.
+	 * Each step is allowed to fail without blocking the next, because the goal is to leave: a room
+	 * that couldn't be ended is still reaped by the sweep, and a failed logout is retried by simply
+	 * logging out from the header. Does not free the room — see ENDED_ROOM_TTL_MS in lib/rooms.ts. */
+	async function resetAndLogOut() {
+		if (!pin || leaving) return;
+		setLeaving(true);
+		await endGame().catch(() => {}); // idempotent server-side: already-ended is a no-op
+		await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+		router.push("/");
 	}
 
 	async function handleCopyLink() {
@@ -305,7 +319,9 @@ export default function AdminPage() {
 		}
 	}
 
-	if (authStatus === "checking") {
+	if (authStatus === "checking" || stream.status === "fatal") {
+		// Blank while the effect above navigates to /room-gone — rendering the quiz builder for that
+		// one frame would flash "create a room" at a host whose room just disappeared.
 		return <div className="flex min-h-dvh flex-1 items-center justify-center" />;
 	}
 
@@ -453,9 +469,7 @@ export default function AdminPage() {
 										ต้องเพิ่มคำถามในหมวด: {emptySections.map((id) => SECTION_LABELS_TH[id]).join(", ")}
 									</p>
 								)}
-								{(createError ?? streamFatalMessage) && (
-									<p className="text-sm text-destructive">{createError ?? streamFatalMessage}</p>
-								)}
+								{createError && <p className="text-sm text-destructive">{createError}</p>}
 							</CardContent>
 						</Card>
 					</div>
@@ -551,17 +565,14 @@ export default function AdminPage() {
 							))}
 						</div>
 					</CardContent>
-					<CardFooter className="flex flex-col gap-3">
-						{actionError && <p className="text-sm text-destructive">{actionError}</p>}
-						<div className="flex w-full gap-3">
-							<Button size="lg" className="h-11 flex-1 text-base" onClick={nextQuestion}>
-								{isLastQuestion ? "ดูผลสรุป" : "ข้อถัดไป"}
-								<ArrowRight className="size-4" />
-							</Button>
-							<Button size="lg" variant="outline" className="h-11 text-base" onClick={endGame}>
-								จบเกม
-							</Button>
-						</div>
+					{/* No manual controls: the room advances itself the moment everyone has answered, and
+					    falls back to this question's own timer for anyone who never does. */}
+					<CardFooter>
+						<p className="text-sm text-muted-foreground">
+							{isLastQuestion
+								? "จะสรุปผลอัตโนมัติเมื่อทุกคนตอบครบ หรือเมื่อหมดเวลาข้อนี้"
+								: "จะไปข้อถัดไปอัตโนมัติเมื่อทุกคนตอบครบ หรือเมื่อหมดเวลาข้อนี้"}
+						</p>
 					</CardFooter>
 				</Card>
 
@@ -655,8 +666,9 @@ export default function AdminPage() {
 					</div>
 				)}
 
-				{/* Deliberately above "สร้างห้องใหม่": creating a new room abandons this one, and nothing
-				    here is stored permanently, so the download has to be the more obvious next step. */}
+				{/* Deliberately above the exit button: logging out revokes the host_token that owns this
+				    room, which is what the export route checks — so after it, the CSV can't be fetched
+				    again even while the room is still in memory. The download has to come first. */}
 				<div className="flex w-full flex-col items-center gap-2">
 					<Button
 						size="lg"
@@ -669,12 +681,13 @@ export default function AdminPage() {
 						ดาวน์โหลดผลลัพธ์ (CSV)
 					</Button>
 					<p className="max-w-80 text-xs text-muted-foreground">
-						ผลการจับคู่และความคิดเห็นไม่ได้ถูกบันทึกถาวร ถ้าอยากเก็บไว้ กรุณาดาวน์โหลดก่อนปิดหน้านี้
+						ผลการจับคู่และความคิดเห็นไม่ได้ถูกบันทึกถาวร และจะถูกลบอัตโนมัติภายใน 1 ชั่วโมงหลังจบเกม ถ้าอยากเก็บไว้
+						กรุณาดาวน์โหลดก่อนออกจากระบบ
 					</p>
 				</div>
 
-				<Button size="lg" className="h-11 text-base" onClick={resetForNewRoom}>
-					สร้างห้องใหม่
+				<Button size="lg" className="h-11 text-base" disabled={leaving} onClick={resetAndLogOut}>
+					{leaving ? "กำลังออกจากระบบ..." : "เสร็จสิ้นและออกจากระบบ"}
 				</Button>
 
 				<div className="w-full text-left">

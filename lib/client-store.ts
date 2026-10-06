@@ -71,7 +71,34 @@ export function useRoomStream<T>(pin: string | null): RoomStreamState<T> {
         } catch {
           // ignore
         }
+        if (watchdog) clearTimeout(watchdog);
         source?.close();
+      });
+
+      // EventSource reports CLOSED only when it has given up for good — which is what a non-2xx
+      // response produces, e.g. the room no longer exists. (CONNECTING means it's retrying a
+      // transient drop; that must be left alone, it's the reconnect the whole design leans on.)
+      //
+      // The stream route does put a `fatal` event in that 404's body, but a browser discards the
+      // body of a connection it failed, so the listener above never sees it — the reason has to be
+      // fetched separately. /state answers for both roles: a missing room and a session that no
+      // longer resolves are exactly the two cases that get us here.
+      source.addEventListener("error", () => {
+        if (source?.readyState !== EventSource.CLOSED) return;
+        if (watchdog) clearTimeout(watchdog);
+        fetch(`/api/rooms/${pin}/state`)
+          .then((res) => res.json().catch(() => null))
+          .then((body) => {
+            if (cancelled) return;
+            setState({
+              status: "fatal",
+              code: body?.error?.code ?? "ROOM_NOT_FOUND",
+              message: body?.error?.message ?? "",
+            });
+          })
+          .catch(() => {
+            if (!cancelled) setState({ status: "fatal", code: "ROOM_NOT_FOUND", message: "" });
+          });
       });
 
       armWatchdog();

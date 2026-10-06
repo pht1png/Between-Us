@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 
 import { addSubscriber, buildHostEvent, buildPlayerEvent, formatFatalEvent, formatSnapshot, removeSubscriber } from "@/lib/bus";
 import type { Subscriber } from "@/lib/bus";
-import { findParticipantByResumeToken, getRoom } from "@/lib/rooms";
+import { findParticipantByResumeToken, getRoom, isRoomHost } from "@/lib/rooms";
 
 const HEARTBEAT_MS = 15_000;
 const SELF_CAP_MS = 8 * 60 * 1000; // one EventSource reconnect every 8 minutes is cheap and bounds any leaked stream
@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ pin:
     });
   }
 
-  const isHost = !!hostToken && room.hostToken === hostToken;
+  const isHost = isRoomHost(room, hostToken);
   const participant = !isHost && resumeToken ? findParticipantByResumeToken(room, resumeToken) : undefined;
 
   if (!isHost && !participant) {
