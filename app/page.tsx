@@ -61,7 +61,10 @@ export default function Home() {
 								<MiniProfileChip label="มายด์" initial="ม" rotation="right" className="bottom-0 right-0 sm:right-4" />
 								<MatchMeter percent={94} size={280} />
 							</div>
-							<p className="max-w-72 text-center text-lg leading-relaxed text-muted-foreground">
+							<h2 className="text-balance font-heading text-2xl font-semibold text-foreground sm:text-3xl">
+								พร้อมเจอคนที่เข้ากับคุณหรือยัง
+							</h2>
+							<p className="max-w-72 text-center text-sm leading-relaxed text-muted-foreground">
 								ตอบคำถามสนุก ๆ ไม่กี่ข้อ แล้วให้เราจับคู่คุณกับคนที่เข้ากันที่สุดในห้องนี้
 							</p>
 							<div className="flex flex-col items-center gap-5">
@@ -112,10 +115,10 @@ export default function Home() {
 
 					<section className="flex w-full max-w-2xl flex-col items-center gap-5 pb-20 text-center">
 						<h2 className="text-balance font-heading text-2xl font-semibold text-foreground sm:text-3xl">
-							พร้อมเจอคนที่เข้ากับคุณหรือยัง
+							นึกไม่ออกว่าจะคุยอะไรดี?
 						</h2>
-						<Button size="lg" className="h-12 px-8 text-base" nativeButton={false} render={<Link href="/join" />}>
-							เข้าร่วมห้อง
+						<Button size="lg" className="h-12 px-8 text-base" nativeButton={false} render={<Link href="/questions" />}>
+							สุ่มคำถาม
 						</Button>
 					</section>
 				</main>
